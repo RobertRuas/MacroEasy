@@ -1,8 +1,36 @@
 # MacroEasy
 
-Aplicação de macros por passos, em Java, para o macOS. Cada macro é uma lista de ações: clique, texto, atalho, espera ou trazer uma janela já aberta para a frente.
+Aplicação de macros por passos, em Java. No macOS ela grava, executa e traz janelas à frente. No Windows e no Linux o mesmo programa executa cliques, texto, atalhos e esperas.
 
-Versão 1.0.11. Desenvolvedor: Robert.
+Versão 1.0. Desenvolvedor: Robert.
+
+## Onde roda
+
+| Sistema | O que funciona |
+| --- | --- |
+| macOS | Tudo: gravação, execução, janelas já abertas e atualização automática. O arquivo publicado é o `MacroEasy.app`. |
+| Windows | O `MacroEasy.jar`, com JDK 22 ou mais recente. Clique, texto, atalho e espera. A gravação e trazer uma janela à frente ficam no macOS. |
+| Linux | O mesmo jar e os mesmos limites do Windows. |
+
+## Como usar no macOS
+
+1. Baixe `MacroEasy.zip` em [Releases](https://github.com/RobertRuas/MacroEasy/releases/tag/v1.0).
+2. Abra o zip e o `MacroEasy.app`.
+3. Autorize Acessibilidade e Monitoramento de entrada. Ative o interruptor e clique em Reabrir. O macOS só grava a permissão na próxima abertura.
+4. Grave o que você faz ou monte os passos. As macros ficam em `~/Documents/MacroEasy`.
+5. Execute com um atraso inicial para focar o programa certo. Esc, o botão flutuante ou o canto superior esquerdo da tela interrompem.
+
+## Como usar no Windows e no Linux
+
+1. Instale um JDK 22 ou mais recente e confira com `java -version`.
+2. Baixe `MacroEasy.jar` na mesma release.
+3. Na pasta do arquivo:
+
+```bash
+java --enable-native-access=ALL-UNNAMED -jar MacroEasy.jar
+```
+
+O editor abre sem as permissões do macOS. A gravação avisa que está disponível só no macOS.
 
 ## O que dá para fazer
 
@@ -25,8 +53,8 @@ O botão Autorizar coloca o app na lista do sistema. Ative o interruptor e cliqu
 
 ## Requisitos
 
-- macOS
-- JDK 22 ou mais recente
+- macOS, Windows ou Linux
+- JDK 22 ou mais recente para compilar, e também para abrir o jar no Windows e no Linux
 - Maven, para compilar
 
 No Mac com Homebrew, o JDK fica em `/opt/homebrew/opt/openjdk`.
@@ -48,7 +76,7 @@ Para gerar o `MacroEasy.app`:
 ```bash
 jpackage --type app-image --name MacroEasy --dest dist \
   --input target --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
-  --app-version 1.0.11 \
+  --app-version 1.0 \
   --java-options '--enable-native-access=ALL-UNNAMED'
 ```
 
