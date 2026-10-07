@@ -34,9 +34,7 @@ final class Updater {
     static final String REPO = "RobertRuas/MacroEasy";
     private static final long MINIMUM_MS = 10_000;
     private static final Pattern TAG = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
-    private static final Pattern ASSET = Pattern.compile(
-            "\"name\"\\s*:\\s*\"MacroEasy\\.zip\"[\\s\\S]{0,800}?\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"",
-            Pattern.DOTALL);
+    private static final Pattern DOWNLOAD = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
     private static final AtomicBoolean checking = new AtomicBoolean();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -87,9 +85,13 @@ final class Updater {
     static Release parse(String json) {
         if (json == null || json.isBlank()) return null;
         Matcher tag = TAG.matcher(json);
-        Matcher asset = ASSET.matcher(json);
-        if (!tag.find() || !asset.find()) return null;
-        String url = asset.group(1).replace("\\u0026", "&");
+        if (!tag.find()) return null;
+        int name = json.indexOf("\"name\": \"MacroEasy.zip\"");
+        if (name < 0) name = json.indexOf("\"name\":\"MacroEasy.zip\"");
+        if (name < 0) return null;
+        Matcher download = DOWNLOAD.matcher(json);
+        if (!download.find(name)) return null;
+        String url = download.group(1).replace("\\u0026", "&");
         if (!trusted(url)) return null;
         return new Release(tag.group(1), url);
     }

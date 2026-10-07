@@ -2,7 +2,7 @@
 
 Aplicação de macros por passos, em Java, para o macOS. Cada macro é uma lista de ações: clique, texto, atalho, espera ou trazer uma janela já aberta para a frente.
 
-Versão 1.0.1. Desenvolvedor: Robert.
+Versão 1.0.2. Desenvolvedor: Robert.
 
 ## O que dá para fazer
 
@@ -48,7 +48,7 @@ Para gerar o `MacroEasy.app`:
 ```bash
 jpackage --type app-image --name MacroEasy --dest dist \
   --input target --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
-  --app-version 1.0.1 \
+  --app-version 1.0.2 \
   --java-options '--enable-native-access=ALL-UNNAMED'
 ```
 
