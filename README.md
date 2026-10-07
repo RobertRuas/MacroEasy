@@ -2,7 +2,7 @@
 
 Aplicação de macros por passos, em Java, para o macOS. Cada macro é uma lista de ações: clique, texto, atalho, espera ou trazer uma janela já aberta para a frente.
 
-Versão 1.0.8. Desenvolvedor: Robert.
+Versão 1.0.9. Desenvolvedor: Robert.
 
 ## O que dá para fazer
 
@@ -48,7 +48,7 @@ Para gerar o `MacroEasy.app`:
 ```bash
 jpackage --type app-image --name MacroEasy --dest dist \
   --input target --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
-  --app-version 1.0.8 \
+  --app-version 1.0.9 \
   --java-options '--enable-native-access=ALL-UNNAMED'
 ```
 
@@ -58,7 +58,7 @@ Abra com:
 open dist/MacroEasy.app
 ```
 
-Cada geração nova muda a assinatura do app. Se o macOS pedir de novo, ative as permissões outra vez e use Reabrir.
+O aplicativo é assinado com o certificado estável MacroEasy Local. A atualização conserva essa assinatura, então a permissão em Ajustes do Sistema continua valendo em qualquer Mac.
 
 ## Atualização
 

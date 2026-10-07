@@ -510,8 +510,7 @@ final class Updater {
                 [ "$links" -ge 1 ] || fail "sem atalhos"
                 /usr/bin/ditto "$app" "$staging" || fail "copiar"
                 /bin/chmod +x "$staging/Contents/MacOS/MacroEasy"
-                /usr/bin/codesign --force --deep --sign - "$staging" || fail "assinar"
-                /usr/bin/codesign --verify --deep --strict "$staging" || fail "verificar"
+                /usr/bin/codesign --verify --deep --strict "$staging" || fail "assinatura"
                 /bin/rm -rf "$backup"
                 moved=0
                 i=0
@@ -527,8 +526,7 @@ final class Updater {
                 /bin/mv "$staging" "$old" || fail "colocar o app novo"
                 /usr/bin/xattr -dr com.apple.quarantine "$old" 2>/dev/null
                 /bin/chmod +x "$old/Contents/MacOS/MacroEasy"
-                /usr/bin/codesign --verify --deep --strict "$old" || /usr/bin/codesign --force --deep --sign - "$old" || fail "assinar instalado"
-                /usr/bin/codesign --verify --deep --strict "$old" || fail "verificar instalado"
+                /usr/bin/codesign --verify --deep --strict "$old" || fail "assinatura instalada"
                 /bin/rm -rf "$backup" "$work" "$stage" "$archive" "$lock"
                 /bin/rm -f "$marker" %s
                 echo "instalado"
