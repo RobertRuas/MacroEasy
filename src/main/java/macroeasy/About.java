@@ -9,7 +9,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 
 final class About {
-    static final String VERSION = "1.0.0";
+    static final String VERSION = "1.0.1";
 
     private About() {}
 
@@ -29,8 +29,7 @@ final class About {
                 Aplicação de macros por passos: cliques, teclado, esperas e janelas já abertas.
 
                 Atualização
-                A verificação de atualizações ainda não está disponível.
-                Um sistema de atualização será feito no futuro.
+                Uma versão nova publicada no GitHub é instalada sozinha ao abrir o app.
                 """.formatted(VERSION)), BorderLayout.CENTER);
         dialog.setContentPane(body);
         dialog.pack();

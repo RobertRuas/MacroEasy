@@ -81,6 +81,10 @@ public final class MacroEasy extends JFrame {
     private boolean loadingLibrary;
     private boolean running;
     private boolean recording;
+
+    boolean busy() {
+        return running || recording;
+    }
     private Recorder recorder;
     private JWindow hud;
     private JButton hudButton;
@@ -117,7 +121,11 @@ public final class MacroEasy extends JFrame {
             }
             installIcon();
             lightenFonts();
-            Permissions.ensure(() -> new MacroEasy().setVisible(true));
+            Permissions.ensure(() -> {
+                MacroEasy app = new MacroEasy();
+                app.setVisible(true);
+                Updater.start(app);
+            });
         });
     }
 

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MacroEasy</title>
+  <meta name="description" content="Macros por passos no macOS. Clique, texto, atalho, espera e janelas já abertas.">
+  <style>
+    :root {
+      --ink: #1c1c1c;
+      --muted: #5e5e5e;
+      --line: #e4e2dc;
+      --paper: #f4f2ec;
+      --card: #fffcf7;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      font-size: 17px;
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    header, main, footer { width: min(880px, calc(100% - 40px)); margin: 0 auto; }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 0;
+    }
+    .mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: var(--ink);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+    nav { display: flex; gap: 22px; font-size: 14px; }
+    nav a { text-decoration: none; color: var(--muted); }
+    nav a:hover { color: var(--ink); }
+    .hero { padding: 64px 0 36px; }
+    h1 {
+      margin: 0 0 16px;
+      font-size: clamp(42px, 7vw, 68px);
+      line-height: 0.98;
+      letter-spacing: -0.045em;
+      font-weight: 650;
+    }
+    .lede { max-width: 34em; margin: 0; color: var(--muted); font-size: 19px; }
+    .actions { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+    .button {
+      display: inline-block;
+      text-decoration: none;
+      background: var(--ink);
+      color: white;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font-size: 15px;
+    }
+    .button.quiet { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding-bottom: 28px; }
+    article {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px 18px 16px;
+      min-height: 150px;
+    }
+    article span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+    article h2 { margin: 0 0 8px; font-size: 18px; letter-spacing: -0.03em; }
+    article p { margin: 0; color: var(--muted); font-size: 15px; }
+    section.wide { padding: 28px 0 10px; }
+    section.wide h2 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.04em; }
+    ol { margin: 18px 0 0; padding: 0; list-style: none; counter-reset: step; }
+    li {
+      counter-increment: step;
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 12px;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+    li::before {
+      content: counter(step);
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+    }
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 36px 0 48px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    @media (max-width: 720px) {
+      .grid { grid-template-columns: 1fr; }
+      header { align-items: flex-start; flex-direction: column; gap: 16px; }
+      footer { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="mark">M</div>
+    <nav>
+      <a href="#passos">Passos</a>
+      <a href="#uso">Uso</a>
+      <a href="#baixar">Baixar</a>
+    </nav>
+  </header>
+  <main>
+    <div class="hero">
+      <h1>Macros por passos, sem complicar.</h1>
+      <p class="lede">O MacroEasy grava e executa cliques, texto, atalhos e janelas que já estão abertas. Um intervalo só entre as ações, e a opção de mudar um passo.</p>
+      <div class="actions">
+        <a class="button" href="#baixar">Baixar para macOS</a>
+        <a class="button quiet" href="https://github.com/RobertRuas/MacroEasy">Código</a>
+      </div>
+    </div>
+    <div class="grid" id="passos">
+      <article>
+        <span>01</span>
+        <h2>Clique e teclado</h2>
+        <p>Marque um ponto na tela, cole um texto ou grave o atalho. Acentos entram pelo colar.</p>
+      </article>
+      <article>
+        <span>02</span>
+        <h2>Intervalo único</h2>
+        <p>A gravação guarda as ações. A pausa entre elas é um valor só, editável em cada passo.</p>
+      </article>
+      <article>
+        <span>03</span>
+        <h2>Janela aberta</h2>
+        <p>Escolha um aplicativo que já está na tela e traga essa janela para a frente.</p>
+      </article>
+    </div>
+    <section class="wide" id="uso">
+      <h2>Como começa</h2>
+      <ol>
+        <li><div>Autorize Acessibilidade e Monitoramento de entrada. O app só segue depois das duas.</div></li>
+        <li><div>Grave o que você faz ou monte os passos na lista. As macros ficam em Documentos.</div></li>
+        <li><div>Execute com um atraso inicial para focar o programa certo. Esc ou o canto da tela interrompe.</div></li>
+      </ol>
+    </section>
+    <section class="wide" id="baixar">
+      <h2>macOS</h2>
+      <p class="lede">A versão publicada chega como aplicativo. Quando sai uma release nova, o MacroEasy instalado se atualiza sozinho.</p>
+      <div class="actions">
+        <a class="button" href="https://github.com/RobertRuas/MacroEasy/releases">Releases</a>
+      </div>
+    </section>
+  </main>
+  <footer>
+    <span>MacroEasy</span>
+    <span>Robert</span>
+  </footer>
+</body>
+</html>
