@@ -14,8 +14,9 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import javax.swing.BorderFactory;
+import java.awt.Frame;
 import javax.swing.JButton;
-import javax.swing.JFrame;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
@@ -25,12 +26,16 @@ import javax.swing.Timer;
 final class Permissions {
     private Permissions() {}
 
-    static void ensure(Runnable ready) {
+    private static Gate gate;
+
+    static void ensure(Frame owner, Runnable ready) {
         if (!isMac() || Access.granted()) {
             ready.run();
             return;
         }
-        new Gate(ready).setVisible(true);
+        if (gate != null && gate.isDisplayable()) return;
+        gate = new Gate(owner, ready);
+        gate.setVisible(true);
     }
 
     private static boolean isMac() {
@@ -250,7 +255,7 @@ final class Permissions {
         }
     }
 
-    private static final class Gate extends JFrame {
+    private static final class Gate extends JDialog {
         private final JLabel accessibilityMark = new JLabel();
         private final JLabel listenMark = new JLabel();
         private final JButton accessibilityAction = new JButton("Autorizar");
@@ -259,8 +264,8 @@ final class Permissions {
         private boolean handedOff;
         private final Timer timer;
 
-        Gate(Runnable ready) {
-            super("MacroEasy");
+        Gate(Frame owner, Runnable ready) {
+            super(owner, "MacroEasy", false);
             this.ready = ready;
             setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
             setIconImage(MacroEasy.icon());
@@ -296,8 +301,7 @@ final class Permissions {
             setContentPane(root);
             pack();
             setResizable(false);
-            setAlwaysOnTop(true);
-            setLocationRelativeTo(null);
+            setLocationRelativeTo(owner);
             addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosing(java.awt.event.WindowEvent e) {
@@ -331,7 +335,13 @@ final class Permissions {
         }
 
         private void authorize(boolean accessibility) {
+            toBack();
             new Thread(() -> {
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
                 Access access = Access.load();
                 if (access != null) {
                     if (accessibility) access.request();
@@ -354,6 +364,7 @@ final class Permissions {
             if (accessibility && listening) {
                 handedOff = true;
                 timer.stop();
+                setVisible(false);
                 dispose();
                 ready.run();
             }

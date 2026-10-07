@@ -2,7 +2,7 @@
 
 Aplicação de macros por passos, em Java, para o macOS. Cada macro é uma lista de ações: clique, texto, atalho, espera ou trazer uma janela já aberta para a frente.
 
-Versão 1.0.6. Desenvolvedor: Robert.
+Versão 1.0.7. Desenvolvedor: Robert.
 
 ## O que dá para fazer
 
@@ -48,7 +48,7 @@ Para gerar o `MacroEasy.app`:
 ```bash
 jpackage --type app-image --name MacroEasy --dest dist \
   --input target --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
-  --app-version 1.0.6 \
+  --app-version 1.0.7 \
   --java-options '--enable-native-access=ALL-UNNAMED'
 ```
 
@@ -62,7 +62,7 @@ Cada geração nova muda a assinatura do app. Se o macOS pedir de novo, ative as
 
 ## Atualização
 
-Ao abrir, o app consulta a release mais recente em [github.com/RobertRuas/MacroEasy](https://github.com/RobertRuas/MacroEasy). Se a tag for maior que a versão instalada, a janela fica bloqueada, o download começa sozinho e a barra fica pelo menos 10 segundos. Sem rede, o app só abre se esta mesma versão foi confirmada nos últimos 5 minutos. Apagar essa confirmação, ou ficar offline para não ver uma release nova, deixa a janela bloqueada até a próxima consulta.
+Ao abrir, o app consulta a release mais recente em [github.com/RobertRuas/MacroEasy](https://github.com/RobertRuas/MacroEasy). Se a tag for maior que a versão instalada, a janela fica bloqueada, o download começa sozinho e a barra fica pelo menos 10 segundos. Se a instalação falhar, o app abre uma vez e espera o botão Tentar de novo, sem repetir sozinho. Sem rede, o app só abre se esta mesma versão foi confirmada nos últimos 5 minutos. Apagar essa confirmação, ou ficar offline para não ver uma release nova, deixa a janela bloqueada até a próxima consulta.
 
 A tag da release deve ser `v1.2.0` ou `1.2.0`. O zip precisa conter `MacroEasy.app`.
 

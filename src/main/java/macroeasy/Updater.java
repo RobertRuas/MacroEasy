@@ -39,6 +39,7 @@ final class Updater {
     private static final Pattern DOWNLOAD = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
     private static final AtomicBoolean checking = new AtomicBoolean();
     private static final AtomicBoolean showing = new AtomicBoolean();
+    private static final AtomicBoolean installing = new AtomicBoolean();
     private static final Preferences prefs = Preferences.userNodeForPackage(MacroEasy.class);
     private static final String REQUIRED = "requiredVersion";
     private static final String CHECKED_VERSION = "checkedVersion";
@@ -51,13 +52,13 @@ final class Updater {
 
     private Updater() {}
 
-    static void start(MacroEasy app) {
+    static void start(MacroEasy app, Runnable ready) {
         app.setEnabled(false);
-        Thread worker = new Thread(() -> look(app), "macroeasy-update");
+        Thread worker = new Thread(() -> look(app, ready), "macroeasy-update");
         worker.setDaemon(true);
         worker.start();
         Timer later = new Timer(30 * 60 * 1000, e -> {
-            Thread again = new Thread(() -> look(app), "macroeasy-update");
+            Thread again = new Thread(() -> look(app, ready), "macroeasy-update");
             again.setDaemon(true);
             again.start();
         });
@@ -65,20 +66,22 @@ final class Updater {
         later.start();
     }
 
-    private static void look(MacroEasy app) {
+    private static void look(MacroEasy app, Runnable ready) {
         if (app.busy() || !checking.compareAndSet(false, true)) return;
         try {
             Release release = latest();
             if (release == null || !newer(release.version, About.VERSION)) {
                 rememberCurrent();
-                SwingUtilities.invokeLater(() -> app.setEnabled(true));
+                clearFailure();
+                SwingUtilities.invokeLater(ready);
                 return;
             }
             prefs.put(REQUIRED, strip(release.version));
-            SwingUtilities.invokeLater(() -> open(app, release));
+            boolean automatic = autoInstall(readFailure(), release.version, About.VERSION);
+            SwingUtilities.invokeLater(() -> open(app, release, automatic, ready));
         } catch (Exception ignored) {
-            if (offlineOk()) SwingUtilities.invokeLater(() -> app.setEnabled(true));
-            else SwingUtilities.invokeLater(() -> open(app, null));
+            if (offlineOk()) SwingUtilities.invokeLater(ready);
+            else SwingUtilities.invokeLater(() -> open(app, null, false, ready));
         } finally {
             checking.set(false);
         }
@@ -109,6 +112,35 @@ final class Updater {
         String url = download.group(1).replace("\\u0026", "&");
         if (!trusted(url)) return null;
         return new Release(tag.group(1), url);
+    }
+
+    /** A failed install of this same release must wait for the retry button. */
+    static boolean autoInstall(String failedMarker, String latest, String current) {
+        if (!newer(latest, current)) return false;
+        if (failedMarker == null || failedMarker.isBlank()) return true;
+        return !strip(failedMarker).equals(strip(latest));
+    }
+
+    static Path failureMarker() {
+        return Path.of(System.getProperty("user.home"), "Library", "Application Support", "MacroEasy", "update-failed");
+    }
+
+    private static String readFailure() {
+        try {
+            Path marker = failureMarker();
+            if (!Files.isRegularFile(marker)) return "";
+            return Files.readString(marker).trim();
+        } catch (IOException ex) {
+            return "";
+        }
+    }
+
+    private static void clearFailure() {
+        try {
+            Files.deleteIfExists(failureMarker());
+        } catch (IOException ignored) {
+            // The next launch still refuses to repeat a failed install while the file remains.
+        }
     }
 
     /** Offline use only after this exact version was confirmed, and only for five minutes. */
@@ -184,7 +216,7 @@ final class Updater {
         return value.startsWith("v") || value.startsWith("V") ? value.substring(1) : value;
     }
 
-    private static void open(MacroEasy app, Release release) {
+    private static void open(MacroEasy app, Release release, boolean automatic, Runnable ready) {
         if (!app.isDisplayable() || app.busy() || !showing.compareAndSet(false, true)) return;
         app.setEnabled(false);
         JDialog dialog = new JDialog(app, "MacroEasy", true);
@@ -206,9 +238,10 @@ final class Updater {
         bar.setStringPainted(true);
         bar.setPreferredSize(new Dimension(360, 18));
         bar.setFont(bar.getFont().deriveFont(11f));
-        JLabel status = new JLabel(release == null ? "Aguardando a rede" : "Baixando");
+        JLabel status = new JLabel(release == null ? "Aguardando a rede"
+                : automatic ? "Baixando" : "A instalação anterior não substituiu o app.");
         JButton retry = new JButton("Tentar de novo");
-        retry.setVisible(release == null);
+        retry.setVisible(release == null || !automatic);
         retry.setFont(retry.getFont().deriveFont(12f));
         status.setFont(status.getFont().deriveFont(11f));
         status.setForeground(muted);
@@ -235,40 +268,42 @@ final class Updater {
         dialog.pack();
         dialog.setResizable(false);
         dialog.setLocationRelativeTo(app);
+        dialog.toFront();
 
         long[] started = {System.currentTimeMillis()};
-        boolean[] ready = {false};
+        boolean[] got = {false};
         boolean[] failed = {false};
         long[] bytes = {0};
         long[] total = {-1};
         Path[] payload = {null};
         boolean[] closing = {false};
-        boolean[] attempt = {release != null};
+        boolean[] attempt = {automatic && release != null};
 
         retry.addActionListener(e -> {
             if (release == null) {
                 showing.set(false);
                 dialog.dispose();
-                Thread again = new Thread(() -> look(app), "macroeasy-update");
+                Thread again = new Thread(() -> look(app, ready), "macroeasy-update");
                 again.setDaemon(true);
                 again.start();
                 return;
             }
+            clearFailure();
             failed[0] = false;
-            ready[0] = false;
+            got[0] = false;
             bytes[0] = 0;
             total[0] = -1;
             started[0] = System.currentTimeMillis();
             retry.setVisible(false);
             status.setText("Baixando");
             attempt[0] = true;
-            Thread again = new Thread(() -> fetch(release, bytes, total, payload, ready, failed), "macroeasy-download");
+            Thread again = new Thread(() -> fetch(release, bytes, total, payload, got, failed), "macroeasy-download");
             again.setDaemon(true);
             again.start();
         });
 
         Thread download = new Thread(() -> {
-            if (attempt[0]) fetch(release, bytes, total, payload, ready, failed);
+            if (attempt[0]) fetch(release, bytes, total, payload, got, failed);
         }, "macroeasy-download");
         download.setDaemon(true);
         download.start();
@@ -277,21 +312,24 @@ final class Updater {
         clock[0] = new Timer(40, e -> {
             long elapsed = System.currentTimeMillis() - started[0];
             double ratio = total[0] > 0 ? bytes[0] / (double) total[0] : 0;
-            if (!failed[0]) bar.setValue(percent(elapsed, ready[0], ratio));
+            if (!attempt[0]) bar.setValue(0);
+            else if (!failed[0]) bar.setValue(percent(elapsed, got[0], ratio));
             if (failed[0]) {
                 status.setText("Não foi possível atualizar. Esta versão continua bloqueada.");
                 retry.setVisible(true);
-            } else if (!attempt[0]) status.setText("Aguardando a rede");
-            else if (!ready[0]) status.setText("Baixando");
+            } else if (!attempt[0]) status.setText(release == null
+                    ? "Aguardando a rede"
+                    : "A instalação anterior não substituiu o app.");
+            else if (!got[0]) status.setText("Baixando");
             else status.setText("Preparando");
-            if (finished(elapsed, ready[0]) && !closing[0]) {
+            if (finished(elapsed, got[0]) && !closing[0]) {
                 closing[0] = true;
                 clock[0].stop();
                 bar.setValue(100);
                 status.setText("Instalando");
-                Thread install = new Thread(() -> install(payload[0], () -> {
+                Thread install = new Thread(() -> install(payload[0], release.version, () -> {
                     failed[0] = true;
-                    ready[0] = false;
+                    got[0] = false;
                     closing[0] = false;
                     status.setText("Não foi possível instalar. Esta versão continua bloqueada.");
                     retry.setVisible(true);
@@ -390,53 +428,113 @@ final class Updater {
         }
     }
 
-    private static void install(Path zip, Runnable failed) {
+    private static void install(Path zip, String version, Runnable failed) {
+        if (!installing.compareAndSet(false, true)) return;
         try {
             Path destination = installedApp();
             Files.createDirectories(destination.getParent());
-            Path staging = destination.resolveSibling(destination.getFileName().toString() + ".next");
             Path script = Files.createTempFile("macroeasy-update", ".sh");
-            String body = """
-                    #!/bin/sh
-                    sleep 1.2
-                    old=%s
-                    archive=%s
-                    staging=%s
-                    work=$(mktemp -d)
-                    fail() {
-                      rm -rf "$work" "$staging"
-                      open "$old"
-                      exit 1
-                    }
-                    ditto -x -k "$archive" "$work" || fail
-                    app=$(find "$work" -type d -name 'MacroEasy.app' -print -quit)
-                    launcher="$app/Contents/MacOS/MacroEasy"
-                    [ -f "$launcher" ] || fail
-                    chmod +x "$launcher"
-                    links=$(find "$app" -type l | wc -l | tr -d ' ')
-                    [ "$links" -ge 1 ] || fail
-                    rm -rf "$staging"
-                    ditto "$app" "$staging" || fail
-                    chmod +x "$staging/Contents/MacOS/MacroEasy"
-                    codesign --force --deep --sign - "$staging" || fail
-                    codesign --verify --deep --strict "$staging" || fail
-                    rm -rf "$old" || fail
-                    mv "$staging" "$old" || fail
-                    xattr -dr com.apple.quarantine "$old" 2>/dev/null
-                    codesign --force --deep --sign - "$old" || fail
-                    codesign --verify --deep --strict "$old" || fail
-                    open "$old"
-                    rm -rf "$work" "$archive"
-                    rm -f %s
-                    """.formatted(q(destination), q(zip), q(staging), q(script));
+            String body = installScript(ProcessHandle.current().pid(), destination, zip, script,
+                    failureMarker(), strip(version));
             Files.writeString(script, body);
             Files.setPosixFilePermissions(script, EnumSet.of(
                     PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE));
-            new ProcessBuilder("sh", script.toString()).start();
+            new ProcessBuilder("/bin/sh", script.toString()).start();
             System.exit(0);
         } catch (IOException ex) {
+            installing.set(false);
             SwingUtilities.invokeLater(failed);
         }
+    }
+
+    /** Replaces the bundle only after this process is gone, and records a failure instead of looping. */
+    static String installScript(long pid, Path destination, Path zip, Path script, Path marker, String version) {
+        Path lock = marker.resolveSibling("update.lock");
+        Path log = Path.of(System.getProperty("user.home"), "Library", "Logs", "MacroEasy-update.log");
+        return """
+                #!/bin/sh
+                log=%s
+                mkdir -p "$(dirname "$log")"
+                exec >> "$log" 2>&1
+                echo "----- $(date) pid=%d"
+                old=%s
+                archive=%s
+                marker=%s
+                lock=%s
+                version=%s
+                if [ -d "$lock" ]; then
+                  stale=$(/usr/bin/find "$lock" -mmin +2 -print -quit)
+                  if [ -z "$stale" ]; then
+                    echo "instalação já em andamento"
+                    exit 0
+                  fi
+                  /bin/rm -rf "$lock"
+                fi
+                mkdir -p "$(dirname "$lock")"
+                mkdir "$lock" || exit 0
+                i=0
+                while /bin/kill -0 %d 2>/dev/null; do
+                  i=$((i+1))
+                  if [ "$i" -eq 24 ]; then
+                    /bin/kill -TERM %d 2>/dev/null || true
+                  fi
+                  if [ "$i" -gt 40 ]; then
+                    break
+                  fi
+                  /bin/sleep 0.25
+                done
+                /bin/sleep 0.4
+                work=$(mktemp -d)
+                stage=$(mktemp -d)
+                staging="$stage/MacroEasy.app"
+                backup="$old.previous"
+                fail() {
+                  echo "falhou: $1"
+                  mkdir -p "$(dirname "$marker")"
+                  printf '%%s\\n' "$version" > "$marker"
+                  rm -rf "$work" "$stage" "$lock"
+                  if [ -d "$backup" ]; then
+                    rm -rf "$old"
+                    mv "$backup" "$old"
+                  fi
+                  /usr/bin/open "$old"
+                  exit 1
+                }
+                /usr/bin/ditto -x -k "$archive" "$work" || fail "extrair"
+                app="$work/MacroEasy.app"
+                [ -d "$app" ] || app=$(/usr/bin/find "$work" -type d -name 'MacroEasy.app' -print -quit)
+                launcher="$app/Contents/MacOS/MacroEasy"
+                [ -f "$launcher" ] || fail "sem lançador"
+                /bin/chmod +x "$launcher"
+                links=$(/usr/bin/find "$app" -type l | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+                [ "$links" -ge 1 ] || fail "sem atalhos"
+                /usr/bin/ditto "$app" "$staging" || fail "copiar"
+                /bin/chmod +x "$staging/Contents/MacOS/MacroEasy"
+                /usr/bin/codesign --force --deep --sign - "$staging" || fail "assinar"
+                /usr/bin/codesign --verify --deep --strict "$staging" || fail "verificar"
+                /bin/rm -rf "$backup"
+                moved=0
+                i=0
+                while [ "$i" -lt 20 ]; do
+                  if /bin/mv "$old" "$backup"; then
+                    moved=1
+                    break
+                  fi
+                  i=$((i+1))
+                  /bin/sleep 0.25
+                done
+                [ "$moved" -eq 1 ] || fail "mover o app antigo"
+                /bin/mv "$staging" "$old" || fail "colocar o app novo"
+                /usr/bin/xattr -dr com.apple.quarantine "$old" 2>/dev/null
+                /bin/chmod +x "$old/Contents/MacOS/MacroEasy"
+                /usr/bin/codesign --verify --deep --strict "$old" || /usr/bin/codesign --force --deep --sign - "$old" || fail "assinar instalado"
+                /usr/bin/codesign --verify --deep --strict "$old" || fail "verificar instalado"
+                /bin/rm -rf "$backup" "$work" "$stage" "$archive" "$lock"
+                /bin/rm -f "$marker" %s
+                echo "instalado"
+                /usr/bin/open "$old"
+                """.formatted(q(log), pid, q(destination), q(zip), q(marker), q(lock),
+                q(version), pid, pid, q(script));
     }
 
     private static Path installedApp() {
@@ -451,7 +549,11 @@ final class Updater {
     }
 
     private static String q(Path path) {
-        return "'" + path.toAbsolutePath().toString().replace("'", "'\\''") + "'";
+        return q(path.toAbsolutePath().toString());
+    }
+
+    private static String q(String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     static final class Release {

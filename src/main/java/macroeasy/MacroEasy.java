@@ -121,12 +121,10 @@ public final class MacroEasy extends JFrame {
             }
             installIcon();
             lightenFonts();
-            Permissions.ensure(() -> {
-                MacroEasy app = new MacroEasy();
-                app.setEnabled(false);
-                app.setVisible(true);
-                Updater.start(app);
-            });
+            MacroEasy app = new MacroEasy();
+            app.setEnabled(false);
+            app.setVisible(true);
+            Updater.start(app, () -> Permissions.ensure(app, () -> app.setEnabled(true)));
         });
     }
 
