@@ -41,6 +41,9 @@ final class Updater {
     private static final AtomicBoolean showing = new AtomicBoolean();
     private static final Preferences prefs = Preferences.userNodeForPackage(MacroEasy.class);
     private static final String REQUIRED = "requiredVersion";
+    private static final String CHECKED_VERSION = "checkedVersion";
+    private static final String CHECKED_AT = "checkedAt";
+    private static final long GRACE_MS = 7L * 24 * 60 * 60 * 1000;
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.ofSeconds(15))
@@ -49,7 +52,7 @@ final class Updater {
     private Updater() {}
 
     static void start(MacroEasy app) {
-        if (newer(prefs.get(REQUIRED, ""), About.VERSION)) app.setEnabled(false);
+        app.setEnabled(false);
         Thread worker = new Thread(() -> look(app), "macroeasy-update");
         worker.setDaemon(true);
         worker.start();
@@ -67,16 +70,15 @@ final class Updater {
         try {
             Release release = latest();
             if (release == null || !newer(release.version, About.VERSION)) {
-                prefs.remove(REQUIRED);
+                rememberCurrent();
                 SwingUtilities.invokeLater(() -> app.setEnabled(true));
                 return;
             }
             prefs.put(REQUIRED, strip(release.version));
             SwingUtilities.invokeLater(() -> open(app, release));
         } catch (Exception ignored) {
-            if (newer(prefs.get(REQUIRED, ""), About.VERSION)) {
-                SwingUtilities.invokeLater(() -> open(app, null));
-            }
+            if (offlineOk()) SwingUtilities.invokeLater(() -> app.setEnabled(true));
+            else SwingUtilities.invokeLater(() -> open(app, null));
         } finally {
             checking.set(false);
         }
@@ -107,6 +109,25 @@ final class Updater {
         String url = download.group(1).replace("\\u0026", "&");
         if (!trusted(url)) return null;
         return new Release(tag.group(1), url);
+    }
+
+    /** Offline use only after this exact version was confirmed, and only for seven days. */
+    static boolean allowedOffline(String current, String checkedVersion, long checkedAt, long now, String required) {
+        if (newer(required, current)) return false;
+        if (current == null || current.isBlank() || !current.equals(strip(checkedVersion))) return false;
+        if (checkedAt <= 0 || now < checkedAt) return false;
+        return now - checkedAt <= GRACE_MS;
+    }
+
+    private static void rememberCurrent() {
+        prefs.remove(REQUIRED);
+        prefs.put(CHECKED_VERSION, About.VERSION);
+        prefs.putLong(CHECKED_AT, System.currentTimeMillis());
+    }
+
+    private static boolean offlineOk() {
+        return allowedOffline(About.VERSION, prefs.get(CHECKED_VERSION, ""),
+                prefs.getLong(CHECKED_AT, 0), System.currentTimeMillis(), prefs.get(REQUIRED, ""));
     }
 
     static boolean newer(String latest, String current) {
@@ -174,7 +195,7 @@ final class Updater {
         JLabel version = new JLabel(release == null ? "Sem conexão" : "Versão " + strip(release.version));
         version.setFont(version.getFont().deriveFont(12f));
         JLabel detail = new JLabel(release == null
-                ? "Esta versão não pode ser usada. Conecte para instalar a nova."
+                ? "Esta versão não abre sem confirmar a release mais recente."
                 : "Esta versão não pode ser usada. O app abre de novo sozinho.");
         detail.setFont(detail.getFont().deriveFont(12f));
         Color muted = UIColor();
@@ -291,11 +312,8 @@ final class Updater {
         try {
             Path zip = Files.createTempFile("macroeasy-", ".zip");
             download(release.url, zip, bytes, total);
-            Path work = Files.createTempDirectory("macroeasy-update");
-            Path appBundle = unzip(zip, work);
-            Files.deleteIfExists(zip);
-            if (appBundle == null) throw new IOException("zip sem MacroEasy.app");
-            payload[0] = appBundle;
+            if (!zipListsApp(zip)) throw new IOException("zip sem MacroEasy.app");
+            payload[0] = zip;
             ready[0] = true;
         } catch (Exception ex) {
             failed[0] = true;
@@ -325,6 +343,18 @@ final class Updater {
                 bytes[0] += read;
             }
         }
+    }
+
+    private static boolean zipListsApp(Path zip) throws IOException {
+        try (ZipInputStream in = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = in.getNextEntry()) != null) {
+                String name = entry.getName();
+                if (name.equals("MacroEasy.app/Contents/Info.plist")
+                        || name.endsWith("/MacroEasy.app/Contents/Info.plist")) return true;
+            }
+        }
+        return false;
     }
 
     static Path unzip(Path zip, Path work) throws IOException {
@@ -360,7 +390,7 @@ final class Updater {
         }
     }
 
-    private static void install(Path source, Runnable failed) {
+    private static void install(Path zip, Runnable failed) {
         try {
             Path destination = installedApp();
             Files.createDirectories(destination.getParent());
@@ -369,18 +399,36 @@ final class Updater {
             String body = """
                     #!/bin/sh
                     sleep 1.2
-                    rm -rf %s
-                    ditto %s %s || exit 1
-                    xattr -dr com.apple.quarantine %s 2>/dev/null
-                    rm -rf %s || exit 1
-                    mv %s %s || exit 1
-                    open %s
-                    rm -rf %s
+                    old=%s
+                    archive=%s
+                    staging=%s
+                    work=$(mktemp -d)
+                    fail() {
+                      rm -rf "$work" "$staging"
+                      open "$old"
+                      exit 1
+                    }
+                    ditto -x -k "$archive" "$work" || fail
+                    app=$(find "$work" -type d -name 'MacroEasy.app' -print -quit)
+                    launcher="$app/Contents/MacOS/MacroEasy"
+                    [ -f "$launcher" ] || fail
+                    chmod +x "$launcher"
+                    links=$(find "$app" -type l | wc -l | tr -d ' ')
+                    [ "$links" -ge 1 ] || fail
+                    rm -rf "$staging"
+                    ditto "$app" "$staging" || fail
+                    chmod +x "$staging/Contents/MacOS/MacroEasy"
+                    codesign --force --deep --sign - "$staging" || fail
+                    codesign --verify --deep --strict "$staging" || fail
+                    rm -rf "$old" || fail
+                    mv "$staging" "$old" || fail
+                    xattr -dr com.apple.quarantine "$old" 2>/dev/null
+                    codesign --force --deep --sign - "$old" || fail
+                    codesign --verify --deep --strict "$old" || fail
+                    open "$old"
+                    rm -rf "$work" "$archive"
                     rm -f %s
-                    """.formatted(
-                    q(staging), q(source), q(staging), q(staging),
-                    q(destination), q(staging), q(destination), q(destination),
-                    q(source.getParent()), q(script));
+                    """.formatted(q(destination), q(zip), q(staging), q(script));
             Files.writeString(script, body);
             Files.setPosixFilePermissions(script, EnumSet.of(
                     PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE));
