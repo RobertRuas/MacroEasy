@@ -43,7 +43,7 @@ final class Updater {
     private static final String REQUIRED = "requiredVersion";
     private static final String CHECKED_VERSION = "checkedVersion";
     private static final String CHECKED_AT = "checkedAt";
-    private static final long GRACE_MS = 7L * 24 * 60 * 60 * 1000;
+    private static final long GRACE_MS = 5L * 60 * 1000;
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.ofSeconds(15))
@@ -111,7 +111,7 @@ final class Updater {
         return new Release(tag.group(1), url);
     }
 
-    /** Offline use only after this exact version was confirmed, and only for seven days. */
+    /** Offline use only after this exact version was confirmed, and only for five minutes. */
     static boolean allowedOffline(String current, String checkedVersion, long checkedAt, long now, String required) {
         if (newer(required, current)) return false;
         if (current == null || current.isBlank() || !current.equals(strip(checkedVersion))) return false;
