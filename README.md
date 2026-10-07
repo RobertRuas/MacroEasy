@@ -2,7 +2,7 @@
 
 Aplicação de macros por passos, em Java, para o macOS. Cada macro é uma lista de ações: clique, texto, atalho, espera ou trazer uma janela já aberta para a frente.
 
-Versão 1.0.2. Desenvolvedor: Robert.
+Versão 1.0.3. Desenvolvedor: Robert.
 
 ## O que dá para fazer
 
@@ -48,7 +48,7 @@ Para gerar o `MacroEasy.app`:
 ```bash
 jpackage --type app-image --name MacroEasy --dest dist \
   --input target --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
-  --app-version 1.0.2 \
+  --app-version 1.0.3 \
   --java-options '--enable-native-access=ALL-UNNAMED'
 ```
 
@@ -62,7 +62,7 @@ Cada geração nova muda a assinatura do app. Se o macOS pedir de novo, ative as
 
 ## Atualização
 
-Ao abrir, o app consulta a release mais recente em [github.com/RobertRuas/MacroEasy](https://github.com/RobertRuas/MacroEasy). Se a tag for maior que a versão instalada, ele baixa `MacroEasy.zip`, mostra o progresso por pelo menos 10 segundos, reinstala e abre de novo.
+Ao abrir, o app consulta a release mais recente em [github.com/RobertRuas/MacroEasy](https://github.com/RobertRuas/MacroEasy). Se a tag for maior que a versão instalada, a janela fica bloqueada, o download começa sozinho e a barra fica pelo menos 10 segundos. Sem rede, uma versão que já ficou para trás continua bloqueada até conseguir atualizar. Se o GitHub não responde e não há atualização pendente, o app abre normalmente.
 
 A tag da release deve ser `v1.2.0` ou `1.2.0`. O zip precisa conter `MacroEasy.app`.
 

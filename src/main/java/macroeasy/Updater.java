@@ -17,11 +17,13 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.prefs.Preferences;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import javax.swing.BorderFactory;
+import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -36,6 +38,9 @@ final class Updater {
     private static final Pattern TAG = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern DOWNLOAD = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
     private static final AtomicBoolean checking = new AtomicBoolean();
+    private static final AtomicBoolean showing = new AtomicBoolean();
+    private static final Preferences prefs = Preferences.userNodeForPackage(MacroEasy.class);
+    private static final String REQUIRED = "requiredVersion";
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.ofSeconds(15))
@@ -44,6 +49,7 @@ final class Updater {
     private Updater() {}
 
     static void start(MacroEasy app) {
+        if (newer(prefs.get(REQUIRED, ""), About.VERSION)) app.setEnabled(false);
         Thread worker = new Thread(() -> look(app), "macroeasy-update");
         worker.setDaemon(true);
         worker.start();
@@ -60,10 +66,17 @@ final class Updater {
         if (app.busy() || !checking.compareAndSet(false, true)) return;
         try {
             Release release = latest();
-            if (release == null || !newer(release.version, About.VERSION)) return;
-            SwingUtilities.invokeAndWait(() -> open(app, release));
+            if (release == null || !newer(release.version, About.VERSION)) {
+                prefs.remove(REQUIRED);
+                SwingUtilities.invokeLater(() -> app.setEnabled(true));
+                return;
+            }
+            prefs.put(REQUIRED, strip(release.version));
+            SwingUtilities.invokeLater(() -> open(app, release));
         } catch (Exception ignored) {
-            // Stay on the installed version when the check cannot finish.
+            if (newer(prefs.get(REQUIRED, ""), About.VERSION)) {
+                SwingUtilities.invokeLater(() -> open(app, null));
+            }
         } finally {
             checking.set(false);
         }
@@ -144,16 +157,25 @@ final class Updater {
         }
     }
 
+    private static String strip(String version) {
+        if (version == null) return "";
+        String value = version.trim();
+        return value.startsWith("v") || value.startsWith("V") ? value.substring(1) : value;
+    }
+
     private static void open(MacroEasy app, Release release) {
-        if (!app.isDisplayable() || app.busy()) return;
+        if (!app.isDisplayable() || app.busy() || !showing.compareAndSet(false, true)) return;
+        app.setEnabled(false);
         JDialog dialog = new JDialog(app, "MacroEasy", true);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
         dialog.setIconImage(MacroEasy.icon());
         JLabel title = new JLabel("Atualizando");
         title.setFont(title.getFont().deriveFont(Font.BOLD, 16f));
-        JLabel version = new JLabel("Versão " + release.version);
+        JLabel version = new JLabel(release == null ? "Sem conexão" : "Versão " + strip(release.version));
         version.setFont(version.getFont().deriveFont(12f));
-        JLabel detail = new JLabel("O app abre de novo sozinho quando terminar.");
+        JLabel detail = new JLabel(release == null
+                ? "Esta versão não pode ser usada. Conecte para instalar a nova."
+                : "Esta versão não pode ser usada. O app abre de novo sozinho.");
         detail.setFont(detail.getFont().deriveFont(12f));
         Color muted = UIColor();
         version.setForeground(muted);
@@ -163,7 +185,10 @@ final class Updater {
         bar.setStringPainted(true);
         bar.setPreferredSize(new Dimension(360, 18));
         bar.setFont(bar.getFont().deriveFont(11f));
-        JLabel status = new JLabel("Baixando");
+        JLabel status = new JLabel(release == null ? "Aguardando a rede" : "Baixando");
+        JButton retry = new JButton("Tentar de novo");
+        retry.setVisible(release == null);
+        retry.setFont(retry.getFont().deriveFont(12f));
         status.setFont(status.getFont().deriveFont(11f));
         status.setForeground(muted);
         JPanel text = new JPanel(new BorderLayout(0, 4));
@@ -172,8 +197,12 @@ final class Updater {
         text.add(version, BorderLayout.CENTER);
         JPanel south = new JPanel(new BorderLayout(0, 8));
         south.setOpaque(false);
+        JPanel actions = new JPanel(new BorderLayout());
+        actions.setOpaque(false);
+        actions.add(status, BorderLayout.CENTER);
+        actions.add(retry, BorderLayout.EAST);
         south.add(bar, BorderLayout.NORTH);
-        south.add(status, BorderLayout.SOUTH);
+        south.add(actions, BorderLayout.SOUTH);
         JPanel root = new JPanel(new BorderLayout(0, 16));
         root.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(214, 214, 214)),
@@ -193,54 +222,84 @@ final class Updater {
         long[] total = {-1};
         Path[] payload = {null};
         boolean[] closing = {false};
+        boolean[] attempt = {release != null};
+
+        retry.addActionListener(e -> {
+            if (release == null) {
+                showing.set(false);
+                dialog.dispose();
+                Thread again = new Thread(() -> look(app), "macroeasy-update");
+                again.setDaemon(true);
+                again.start();
+                return;
+            }
+            failed[0] = false;
+            ready[0] = false;
+            bytes[0] = 0;
+            total[0] = -1;
+            started[0] = System.currentTimeMillis();
+            retry.setVisible(false);
+            status.setText("Baixando");
+            attempt[0] = true;
+            Thread again = new Thread(() -> fetch(release, bytes, total, payload, ready, failed), "macroeasy-download");
+            again.setDaemon(true);
+            again.start();
+        });
 
         Thread download = new Thread(() -> {
-            try {
-                Path zip = Files.createTempFile("macroeasy-", ".zip");
-                download(release.url, zip, bytes, total);
-                Path work = Files.createTempDirectory("macroeasy-update");
-                Path appBundle = unzip(zip, work);
-                Files.deleteIfExists(zip);
-                if (appBundle == null) throw new IOException("zip sem MacroEasy.app");
-                payload[0] = appBundle;
-                ready[0] = true;
-            } catch (Exception ex) {
-                failed[0] = true;
-            }
+            if (attempt[0]) fetch(release, bytes, total, payload, ready, failed);
         }, "macroeasy-download");
         download.setDaemon(true);
         download.start();
 
-        Timer clock = new Timer(40, e -> {
+        Timer[] clock = new Timer[1];
+        clock[0] = new Timer(40, e -> {
             long elapsed = System.currentTimeMillis() - started[0];
             double ratio = total[0] > 0 ? bytes[0] / (double) total[0] : 0;
-            bar.setValue(percent(elapsed, ready[0], ratio));
-            if (failed[0]) status.setText("Não foi possível atualizar. A versão atual continua.");
+            if (!failed[0]) bar.setValue(percent(elapsed, ready[0], ratio));
+            if (failed[0]) {
+                status.setText("Não foi possível atualizar. Esta versão continua bloqueada.");
+                retry.setVisible(true);
+            } else if (!attempt[0]) status.setText("Aguardando a rede");
             else if (!ready[0]) status.setText("Baixando");
             else status.setText("Preparando");
-            if (failed[0] && elapsed > 2_500 && !closing[0]) {
-                closing[0] = true;
-                ((Timer) e.getSource()).stop();
-                dialog.dispose();
-            }
             if (finished(elapsed, ready[0]) && !closing[0]) {
                 closing[0] = true;
-                ((Timer) e.getSource()).stop();
+                clock[0].stop();
                 bar.setValue(100);
                 status.setText("Instalando");
                 Thread install = new Thread(() -> install(payload[0], () -> {
-                    status.setText("Não foi possível instalar. A versão atual continua.");
-                    Timer close = new Timer(2500, ev -> dialog.dispose());
-                    close.setRepeats(false);
-                    close.start();
+                    failed[0] = true;
+                    ready[0] = false;
+                    closing[0] = false;
+                    status.setText("Não foi possível instalar. Esta versão continua bloqueada.");
+                    retry.setVisible(true);
+                    clock[0].start();
                 }), "macroeasy-install");
                 install.setDaemon(true);
                 install.start();
             }
         });
-        clock.start();
+        clock[0].start();
         dialog.setVisible(true);
-        clock.stop();
+        clock[0].stop();
+        showing.set(false);
+    }
+
+    private static void fetch(Release release, long[] bytes, long[] total, Path[] payload,
+                              boolean[] ready, boolean[] failed) {
+        try {
+            Path zip = Files.createTempFile("macroeasy-", ".zip");
+            download(release.url, zip, bytes, total);
+            Path work = Files.createTempDirectory("macroeasy-update");
+            Path appBundle = unzip(zip, work);
+            Files.deleteIfExists(zip);
+            if (appBundle == null) throw new IOException("zip sem MacroEasy.app");
+            payload[0] = appBundle;
+            ready[0] = true;
+        } catch (Exception ex) {
+            failed[0] = true;
+        }
     }
 
     private static Color UIColor() {
