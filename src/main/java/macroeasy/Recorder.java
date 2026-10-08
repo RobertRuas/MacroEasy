@@ -22,6 +22,13 @@ final class Recorder {
     private static final long MOUSE_RIGHT = 1L << 3;
     private static final long MOUSE_OTHER = 1L << 25;
     private static final long KEY_DOWN = 1L << 10;
+    private static final long SCROLL_WHEEL = 1L << 22;
+    private static final int TYPE_KEY_DOWN = 10;
+    private static final int TYPE_SCROLL = 22;
+    /** kCGScrollWheelEventDeltaAxis1: vertical lines, positive when rolling up. */
+    private static final int FIELD_SCROLL_LINES = 11;
+    /** Wheel events closer than this, in the same direction, merge into one step. */
+    private static final long SCROLL_MERGE_MS = 700;
     private static final long COMMAND = 0x100000;
     private static final long CONTROL = 0x40000;
     private static final long OPTION = 0x80000;
@@ -37,6 +44,8 @@ final class Recorder {
     private final StringBuilder typed = new StringBuilder();
     private volatile boolean stopRequested;
     private long lastNs;
+    /** Open scroll step being merged, or null. */
+    private Step scrolling;
     private SegmentAllocator points;
     private MethodHandle location;
     private MethodHandle flags;
@@ -79,7 +88,7 @@ final class Recorder {
             MethodHandle create = linker.downcallHandle(cg.find("CGEventTapCreate").orElseThrow(),
                     FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT,
                             ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-            long mask = MOUSE_LEFT | MOUSE_RIGHT | MOUSE_OTHER | KEY_DOWN;
+            long mask = MOUSE_LEFT | MOUSE_RIGHT | MOUSE_OTHER | KEY_DOWN | SCROLL_WHEEL;
             MemorySegment tap = (MemorySegment) create.invokeExact(1, 0, 1, mask, stub, MemorySegment.NULL);
             if (tap.address() == 0) {
                 return "Para gravar, permita o MacroEasy em Monitoramento de entrada, nos Ajustes do Sistema.";
@@ -140,7 +149,7 @@ final class Recorder {
     }
 
     private void handle(int type, MemorySegment event) throws Throwable {
-        if (type == 10) {
+        if (type == TYPE_KEY_DOWN) {
             key(event, (long) field.invokeExact(event, 9), (long) field.invokeExact(event, 8), (long) flags.invokeExact(event));
             return;
         }
@@ -149,6 +158,10 @@ final class Recorder {
         int y = (int) Math.round(point.get(ValueLayout.JAVA_DOUBLE, 8));
         Rectangle skip = ignore.get();
         if (skip != null && skip.contains(x, y)) return;
+        if (type == TYPE_SCROLL) {
+            scroll(x, y, (long) field.invokeExact(event, FIELD_SCROLL_LINES));
+            return;
+        }
         int button = switch (type) {
             case 3 -> 3;
             case 25 -> 2;
@@ -165,11 +178,37 @@ final class Recorder {
         out.add(Step.click(x, y, button, 1));
     }
 
+    /** Merges wheel ticks into one step per direction; a pause or a turn starts a new one. */
+    private void scroll(int x, int y, long delta) {
+        if (delta == 0) return;
+        int lines = (int) -delta;
+        Step open = scrolling;
+        if (open != null && millisSinceLast() < SCROLL_MERGE_MS
+                && Integer.signum(open.scroll) == Integer.signum(lines)) {
+            scrolling = Step.scroll(open.x, open.y, open.scroll + lines, true);
+            out.replaceLast(scrolling);
+            lastNs = System.nanoTime();
+            return;
+        }
+        flushText();
+        gap();
+        scrolling = Step.scroll(x, y, lines, true);
+        out.add(scrolling);
+    }
+
+    /**
+     * Any key with ⌘, Ctrl or ⌥, and any non-printing key (Enter, Tab, Esc, arrows, F-keys, Delete…)
+     * becomes a shortcut step. Only plain characters are merged into text.
+     */
     private void key(MemorySegment event, long code, long repeat, long flag) throws Throwable {
-        if (repeat != 0 || isModifier((int) code)) return;
-        boolean shortcut = (flag & (COMMAND | CONTROL | OPTION)) != 0;
-        int vk = macToJava((int) code);
-        if (shortcut || isSpecial((int) code)) {
+        int key = (int) code;
+        if (repeat != 0 || isModifier(key)) return;
+        boolean modified = (flag & (COMMAND | CONTROL | OPTION)) != 0;
+        boolean shifted = (flag & SHIFT) != 0;
+        boolean control = isControlKey(key);
+        boolean backspace = key == 0x33;
+        if (modified || (control && !backspace) || (backspace && shifted)) {
+            int vk = macToJava(key);
             if (vk == KeyEvent.VK_UNDEFINED) return;
             flushText();
             gap();
@@ -177,12 +216,12 @@ final class Recorder {
             if ((flag & COMMAND) != 0) keys.add(KeyEvent.VK_META);
             if ((flag & CONTROL) != 0) keys.add(KeyEvent.VK_CONTROL);
             if ((flag & OPTION) != 0) keys.add(KeyEvent.VK_ALT);
-            if ((flag & SHIFT) != 0) keys.add(KeyEvent.VK_SHIFT);
+            if (shifted) keys.add(KeyEvent.VK_SHIFT);
             keys.add(vk);
             out.add(Step.keys(keys.stream().mapToInt(Integer::intValue).toArray()));
             return;
         }
-        if ((int) code == 0x33) {
+        if (backspace) {
             if (!typed.isEmpty()) {
                 typed.deleteCharAt(typed.length() - 1);
                 lastNs = System.nanoTime();
@@ -190,14 +229,6 @@ final class Recorder {
                 gap();
                 out.add(Step.keys(new int[] {KeyEvent.VK_BACK_SPACE}));
             }
-            return;
-        }
-        if ((int) code == 0x24 || (int) code == 0x4C) {
-            appendText("\n");
-            return;
-        }
-        if ((int) code == 0x30) {
-            appendText("\t");
             return;
         }
         String text = characters(event);
@@ -235,6 +266,7 @@ final class Recorder {
 
     private void gap() {
         lastNs = System.nanoTime();
+        scrolling = null;
     }
 
     private long millisSinceLast() {
@@ -246,8 +278,10 @@ final class Recorder {
                 || code == 0x3C || code == 0x3D || code == 0x3E;
     }
 
-    private static boolean isSpecial(int code) {
-        return code == 0x35 || (code >= 0x60 && code <= 0x7E);
+    /** Keys that act instead of printing: Enter, keypad Enter, Tab, Backspace, Esc, Delete, Help, Clear, F-keys, navigation. */
+    private static boolean isControlKey(int code) {
+        return code == 0x24 || code == 0x4C || code == 0x30 || code == 0x33 || code == 0x35
+                || code == 0x47 || (code >= 0x60 && code <= 0x7E);
     }
 
     private static int macToJava(int code) {
@@ -304,6 +338,24 @@ final class Recorder {
             case 0x32 -> KeyEvent.VK_BACK_QUOTE;
             case 0x33 -> KeyEvent.VK_BACK_SPACE;
             case 0x35 -> KeyEvent.VK_ESCAPE;
+            case 0x75 -> KeyEvent.VK_DELETE;
+            case 0x72 -> KeyEvent.VK_INSERT;
+            case 0x47 -> KeyEvent.VK_CLEAR;
+            case 0x41 -> KeyEvent.VK_DECIMAL;
+            case 0x43 -> KeyEvent.VK_MULTIPLY;
+            case 0x45 -> KeyEvent.VK_ADD;
+            case 0x4B -> KeyEvent.VK_DIVIDE;
+            case 0x4E -> KeyEvent.VK_SUBTRACT;
+            case 0x52 -> KeyEvent.VK_NUMPAD0;
+            case 0x53 -> KeyEvent.VK_NUMPAD1;
+            case 0x54 -> KeyEvent.VK_NUMPAD2;
+            case 0x55 -> KeyEvent.VK_NUMPAD3;
+            case 0x56 -> KeyEvent.VK_NUMPAD4;
+            case 0x57 -> KeyEvent.VK_NUMPAD5;
+            case 0x58 -> KeyEvent.VK_NUMPAD6;
+            case 0x59 -> KeyEvent.VK_NUMPAD7;
+            case 0x5B -> KeyEvent.VK_NUMPAD8;
+            case 0x5C -> KeyEvent.VK_NUMPAD9;
             case 0x7A -> KeyEvent.VK_F1;
             case 0x78 -> KeyEvent.VK_F2;
             case 0x63 -> KeyEvent.VK_F3;

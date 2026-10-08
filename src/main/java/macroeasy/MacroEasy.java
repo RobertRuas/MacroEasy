@@ -15,6 +15,7 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Taskbar;
 import java.awt.Toolkit;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
@@ -59,19 +60,38 @@ public final class MacroEasy extends JFrame {
     private final DefaultListModel<Step> model = new DefaultListModel<>();
     private final JList<Step> list = new JList<>(model);
     private final JLabel status = new JLabel(" ");
-    private final JButton run = button("Executar", Icons.play());
-    private final JButton record = button("Gravar", Icons.record());
-    private final JButton stop = button("Parar", Icons.stop());
-    private final JButton edit = button("Editar", Icons.edit());
-    private final JButton duplicate = button("Duplicar", Icons.copy());
-    private final JButton delete = button("Excluir", Icons.trash());
-    private final JButton up = button("Subir", Icons.up());
-    private final JButton down = button("Descer", Icons.down());
+    private static final int SHORTCUT = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+    private static final boolean MAC = System.getProperty("os.name", "").toLowerCase().contains("mac");
+    private static final KeyStroke KEY_RUN = key(KeyEvent.VK_R, SHORTCUT);
+    private static final KeyStroke KEY_RECORD = key(KeyEvent.VK_R, SHORTCUT | KeyEvent.SHIFT_DOWN_MASK);
+    private static final KeyStroke KEY_STOP = key(KeyEvent.VK_ESCAPE, 0);
+    private static final KeyStroke KEY_OPEN = key(KeyEvent.VK_O, SHORTCUT);
+    private static final KeyStroke KEY_SAVE = key(KeyEvent.VK_S, SHORTCUT);
+    private static final KeyStroke KEY_NEW_MACRO = key(KeyEvent.VK_N, SHORTCUT);
+    private static final KeyStroke KEY_CLICK = key(KeyEvent.VK_1, SHORTCUT);
+    private static final KeyStroke KEY_TEXT = key(KeyEvent.VK_2, SHORTCUT);
+    private static final KeyStroke KEY_KEYS = key(KeyEvent.VK_3, SHORTCUT);
+    private static final KeyStroke KEY_WAIT = key(KeyEvent.VK_4, SHORTCUT);
+    private static final KeyStroke KEY_WINDOW = key(KeyEvent.VK_5, SHORTCUT);
+    private static final KeyStroke KEY_SCROLL = key(KeyEvent.VK_6, SHORTCUT);
+    private static final KeyStroke KEY_EDIT = key(KeyEvent.VK_E, SHORTCUT);
+    private static final KeyStroke KEY_DUPLICATE = key(KeyEvent.VK_D, SHORTCUT);
+    private static final KeyStroke KEY_DELETE = key(KeyEvent.VK_BACK_SPACE, SHORTCUT);
+    private static final KeyStroke KEY_UP = key(KeyEvent.VK_UP, SHORTCUT);
+    private static final KeyStroke KEY_DOWN = key(KeyEvent.VK_DOWN, SHORTCUT);
+
+    private final JButton run = button("Executar", Icons.play(), KEY_RUN);
+    private final JButton record = button("Gravar", Icons.record(), KEY_RECORD);
+    private final JButton stop = button("Parar", Icons.stop(), KEY_STOP);
+    private final JButton edit = button("Editar", Icons.edit(), KEY_EDIT);
+    private final JButton duplicate = button("Duplicar", Icons.copy(), KEY_DUPLICATE);
+    private final JButton delete = button("Excluir", Icons.trash(), KEY_DELETE);
+    private final JButton up = button("Subir", Icons.up(), KEY_UP);
+    private final JButton down = button("Descer", Icons.down(), KEY_DOWN);
     private final JSpinner repeats = new JSpinner(new SpinnerNumberModel(1, 1, 999, 1));
     private final JSpinner delay = new JSpinner(new SpinnerNumberModel(2000, 0, 600_000, 100));
     private final JSpinner interval = new JSpinner(new SpinnerNumberModel(200, 0, 600_000, 50));
     private final AtomicBoolean stopFlag = new AtomicBoolean();
-    private final int shortcut = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
 
     private final DefaultListModel<Path> macros = new DefaultListModel<>();
     private final JList<Path> macroList = new JList<>(macros);
@@ -99,8 +119,8 @@ public final class MacroEasy extends JFrame {
         bindKeys();
         loadSession();
         pack();
-        setMinimumSize(new Dimension(1040, 480));
-        setSize(1120, 560);
+        setMinimumSize(new Dimension(1180, 480));
+        setSize(1260, 560);
         setLocationRelativeTo(null);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -177,19 +197,22 @@ public final class MacroEasy extends JFrame {
         up.addActionListener(e -> move(-1));
         down.addActionListener(e -> move(1));
 
-        JButton click = button("Clique", Icons.click());
-        JButton text = button("Texto", Icons.text());
-        JButton keys = button("Atalho", Icons.keys());
-        JButton wait = button("Espera", Icons.clock());
-        JButton window = button("Janela", Icons.window());
-        click.addActionListener(e -> insert(Editor.click(this, null)));
-        text.addActionListener(e -> insert(Editor.text(this, null)));
-        keys.addActionListener(e -> insert(Editor.keys(this, null)));
-        wait.addActionListener(e -> insert(Editor.wait(this, null)));
-        window.addActionListener(e -> insert(Editor.focus(this, null)));
+        JButton click = button("Clique", Icons.click(), KEY_CLICK);
+        JButton text = button("Texto", Icons.text(), KEY_TEXT);
+        JButton keys = button("Atalho", Icons.keys(), KEY_KEYS);
+        JButton wait = button("Espera", Icons.clock(), KEY_WAIT);
+        JButton window = button("Janela", Icons.window(), KEY_WINDOW);
+        JButton scrollStep = button("Rolagem", Icons.scroll(), KEY_SCROLL);
+        scrollStep.setToolTipText("Gira a roda do mouse para cima ou para baixo");
+        click.addActionListener(e -> newClick());
+        text.addActionListener(e -> newText());
+        keys.addActionListener(e -> newKeys());
+        wait.addActionListener(e -> newWait());
+        window.addActionListener(e -> newWindow());
+        scrollStep.addActionListener(e -> newScroll());
 
-        JButton open = button("Abrir", Icons.folder());
-        JButton save = button("Salvar", Icons.save());
+        JButton open = button("Abrir", Icons.folder(), KEY_OPEN);
+        JButton save = button("Salvar", Icons.save(), KEY_SAVE);
         open.addActionListener(e -> open());
         save.addActionListener(e -> save());
 
@@ -201,7 +224,7 @@ public final class MacroEasy extends JFrame {
 
         JPanel tools = new JPanel();
         tools.setLayout(new javax.swing.BoxLayout(tools, javax.swing.BoxLayout.Y_AXIS));
-        JPanel createRow = row(click, text, keys, wait, window);
+        JPanel createRow = row(click, text, keys, wait, window, scrollStep);
         JPanel changeRow = row(edit, duplicate, delete, up, down);
         createRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         changeRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -264,7 +287,7 @@ public final class MacroEasy extends JFrame {
             if (selected == null || selected.equals(file) || running || recording) return;
             loadMacro(selected);
         });
-        JButton create = button("Nova", Icons.plus());
+        JButton create = button("Nova", Icons.plus(), KEY_NEW_MACRO);
         removeMacro = button("Excluir", Icons.trash());
         create.addActionListener(e -> createMacro());
         removeMacro.addActionListener(e -> deleteMacro());
@@ -293,22 +316,55 @@ public final class MacroEasy extends JFrame {
     }
 
     private void bindKeys() {
-        bind("run", KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_R, shortcut), this::start);
-        bind("stop", KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0), this::halt);
-        bind("open", KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_O, shortcut), this::open);
-        bind("save", KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_S, shortcut), this::save);
-        bind("edit", KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_E, shortcut), this::editSelected);
-        bind("dup", KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_D, shortcut), this::duplicateSelected);
-        list.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DELETE, 0), "delete");
-        list.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_BACK_SPACE, 0), "delete");
+        bind("run", KEY_RUN, this::start);
+        bind("record", KEY_RECORD, this::record);
+        bind("stop", KEY_STOP, this::halt);
+        bind("open", KEY_OPEN, this::open);
+        bind("save", KEY_SAVE, this::save);
+        bind("newMacro", KEY_NEW_MACRO, this::createMacro);
+        bind("newClick", KEY_CLICK, this::newClick);
+        bind("newText", KEY_TEXT, this::newText);
+        bind("newKeys", KEY_KEYS, this::newKeys);
+        bind("newWait", KEY_WAIT, this::newWait);
+        bind("newWindow", KEY_WINDOW, this::newWindow);
+        bind("newScroll", KEY_SCROLL, this::newScroll);
+        bind("edit", KEY_EDIT, this::editSelected);
+        bind("dup", KEY_DUPLICATE, this::duplicateSelected);
+        bind("deleteStep", KEY_DELETE, this::deleteSelected);
+        list.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "delete");
+        list.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "delete");
         list.getActionMap().put("delete", new AbstractAction() {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent e) {
                 deleteSelected();
             }
         });
-        bind("up", KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_UP, shortcut), () -> move(-1));
-        bind("down", KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DOWN, shortcut), () -> move(1));
+        bind("up", KEY_UP, () -> move(-1));
+        bind("down", KEY_DOWN, () -> move(1));
+    }
+
+    private void newClick() {
+        if (!busy()) insert(Editor.click(this, null));
+    }
+
+    private void newText() {
+        if (!busy()) insert(Editor.text(this, null));
+    }
+
+    private void newKeys() {
+        if (!busy()) insert(Editor.keys(this, null));
+    }
+
+    private void newWait() {
+        if (!busy()) insert(Editor.wait(this, null));
+    }
+
+    private void newWindow() {
+        if (!busy()) insert(Editor.focus(this, null));
+    }
+
+    private void newScroll() {
+        if (!busy()) insert(Editor.scroll(this, null));
     }
 
     private void bind(String name, KeyStroke stroke, Runnable action) {
@@ -401,6 +457,7 @@ public final class MacroEasy extends JFrame {
             case KEYS -> Editor.keys(this, current);
             case WAIT -> Editor.wait(this, current);
             case FOCUS -> Editor.focus(this, current);
+            case SCROLL -> Editor.scroll(this, current);
         };
         if (next == null) return;
         model.set(index, next);
@@ -708,7 +765,7 @@ public final class MacroEasy extends JFrame {
     private void idleStatus() {
         int count = model.getSize();
         if (count == 0) {
-            setStatus("Nenhum passo. Adicione um clique, texto, atalho, espera ou janela.");
+            setStatus("Nenhum passo. Adicione um clique, texto, atalho, espera, janela ou rolagem.");
         } else {
             setStatus(count + (count == 1 ? " passo. " : " passos. ")
                     + "Para interromper: Parar, ou o mouse no canto superior esquerdo.");
@@ -769,7 +826,7 @@ public final class MacroEasy extends JFrame {
         recording = true;
         stopFlag.set(false);
         updateEnabled();
-        setStatus("Gravando cliques e teclas. O intervalo entre elas fica no campo Intervalo.");
+        setStatus("Gravando cliques, teclas e rolagem. O intervalo entre eles fica no campo Intervalo.");
         recorder = new Recorder(new Recorder.Out() {
             @Override
             public void add(Step step) {
@@ -796,10 +853,11 @@ public final class MacroEasy extends JFrame {
         worker.start();
     }
 
-    private void appendRecorded(Step step, boolean replaceClick) {
-        if (replaceClick) {
+    /** With {@code replaceLast}, the most recent step of the same kind is updated: a double click, or a longer scroll. */
+    private void appendRecorded(Step step, boolean replaceLast) {
+        if (replaceLast) {
             for (int i = model.getSize() - 1; i >= 0 && i >= model.getSize() - 3; i--) {
-                if (model.get(i).kind == Step.Kind.CLICK) {
+                if (model.get(i).kind == step.kind) {
                     model.set(i, step);
                     list.setSelectedIndex(i);
                     list.ensureIndexIsVisible(i);
@@ -889,12 +947,91 @@ public final class MacroEasy extends JFrame {
     }
 
     private static JButton button(String text, javax.swing.Icon icon) {
-        JButton button = new JButton(text, icon);
+        return style(new JButton(text, icon));
+    }
+
+    /** A button that shows its keyboard shortcut after the caption, in a muted color. */
+    private static JButton button(String text, javax.swing.Icon icon, KeyStroke stroke) {
+        JButton button = style(new HintButton(text, icon, hint(stroke)));
+        String tip = button.getToolTipText();
+        button.setToolTipText(tip == null ? text + "  (" + hint(stroke) + ")" : tip);
+        return button;
+    }
+
+    private static JButton style(JButton button) {
         button.setMargin(new Insets(3, 8, 3, 10));
         button.setIconTextGap(6);
         button.setFont(button.getFont().deriveFont(12f));
         button.setFocusPainted(false);
         return button;
+    }
+
+    private static KeyStroke key(int code, int modifiers) {
+        return KeyStroke.getKeyStroke(code, modifiers);
+    }
+
+    /** Human label for a shortcut: ⌘⇧R on the Mac, Ctrl+Shift+R elsewhere. */
+    static String hint(KeyStroke stroke) {
+        int mods = stroke.getModifiers();
+        StringBuilder sb = new StringBuilder();
+        if ((mods & KeyEvent.CTRL_DOWN_MASK) != 0) sb.append(MAC ? "⌃" : "Ctrl+");
+        if ((mods & KeyEvent.ALT_DOWN_MASK) != 0) sb.append(MAC ? "⌥" : "Alt+");
+        if ((mods & KeyEvent.SHIFT_DOWN_MASK) != 0) sb.append(MAC ? "⇧" : "Shift+");
+        if ((mods & KeyEvent.META_DOWN_MASK) != 0) sb.append("⌘");
+        sb.append(switch (stroke.getKeyCode()) {
+            case KeyEvent.VK_ESCAPE -> "Esc";
+            case KeyEvent.VK_UP -> "↑";
+            case KeyEvent.VK_DOWN -> "↓";
+            case KeyEvent.VK_BACK_SPACE -> "⌫";
+            case KeyEvent.VK_DELETE -> "Del";
+            default -> KeyEvent.getKeyText(stroke.getKeyCode());
+        });
+        return sb.toString();
+    }
+
+    /**
+     * Swing paints HTML labels in full color even when disabled, so the colors
+     * are rewritten whenever the enabled state changes.
+     */
+    private static final class HintButton extends JButton {
+        private final String caption;
+        private final String shortcut;
+
+        HintButton(String caption, javax.swing.Icon icon, String shortcut) {
+            super(icon);
+            this.caption = caption;
+            this.shortcut = shortcut;
+            refresh();
+        }
+
+        @Override
+        public void setEnabled(boolean enabled) {
+            super.setEnabled(enabled);
+            if (caption != null) refresh();
+        }
+
+        private void refresh() {
+            Color text = UIManager.getColor(isEnabled() ? "Button.foreground" : "Button.disabledText");
+            if (text == null) text = isEnabled() ? new Color(35, 35, 35) : new Color(150, 150, 150);
+            Color muted = isEnabled() ? new Color(140, 140, 140) : withAlpha(text, 150);
+            setText("<html><nobr><span style='color:" + hex(text) + "'>" + caption
+                    + "</span>&nbsp;&nbsp;<span style='color:" + hex(muted) + "'>" + shortcut
+                    + "</span></nobr></html>");
+        }
+
+        private static Color withAlpha(Color color, int alpha) {
+            Color background = UIManager.getColor("Panel.background");
+            if (background == null) background = Color.WHITE;
+            float t = alpha / 255f;
+            return new Color(
+                    Math.round(color.getRed() * t + background.getRed() * (1 - t)),
+                    Math.round(color.getGreen() * t + background.getGreen() * (1 - t)),
+                    Math.round(color.getBlue() * t + background.getBlue() * (1 - t)));
+        }
+
+        private static String hex(Color color) {
+            return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
+        }
     }
 
     private static void lightenFonts() {

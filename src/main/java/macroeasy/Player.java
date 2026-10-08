@@ -53,7 +53,32 @@ public final class Player {
             case KEYS -> chord(step.keys);
             case WAIT -> pause(step.waitMs);
             case FOCUS -> focus(step);
+            case SCROLL -> scroll(step);
         };
+    }
+
+    /**
+     * Rolls the wheel a few lines at a time so Stop still reacts mid-way.
+     * On macOS {@link Robot#mouseWheel} rolls up for positive values, the opposite
+     * of its documentation, so the sign is flipped there.
+     */
+    private boolean scroll(Step step) {
+        if (step.scroll == 0) return true;
+        if (step.move) {
+            if (!pause(40)) return false;
+            robot.mouseMove(step.x, step.y);
+            if (!pause(30)) return false;
+        }
+        int left = Math.abs(step.scroll);
+        int sign = (step.scroll < 0) == isMac() ? 1 : -1;
+        while (left > 0) {
+            if (stopped()) return false;
+            int chunk = Math.min(3, left);
+            robot.mouseWheel(sign * chunk);
+            left -= chunk;
+            if (left > 0 && !pause(20)) return false;
+        }
+        return pause(40);
     }
 
     private boolean focus(Step step) {

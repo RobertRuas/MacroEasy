@@ -36,6 +36,7 @@ public final class Editor {
     private static final int CANCEL = 0;
     private static final int OK = 1;
     private static final int PICK = 2;
+    private static final int CAPTURE = 3;
 
     private Editor() {}
 
@@ -217,6 +218,90 @@ public final class Editor {
         if (action[0] != OK) return null;
         Windows.Item item = choices.getSelectedValue();
         return Step.focus(item.app, item.title).withGap(gap.value());
+    }
+
+    public static Step scroll(Window owner, Step current) {
+        JComboBox<String> direction = new JComboBox<>(new String[] {"Para baixo", "Para cima"});
+        int lines = current == null ? 5 : Math.max(1, Math.abs(current.scroll));
+        JSpinner amount = new JSpinner(new SpinnerNumberModel(lines, 1, 10_000, 1));
+        ((JSpinner.DefaultEditor) amount.getEditor()).getTextField().setColumns(4);
+        if (current != null && current.scroll < 0) direction.setSelectedIndex(1);
+        boolean placed = current != null && current.move;
+        JCheckBox move = new JCheckBox("Levar o mouse antes para");
+        move.setSelected(placed);
+        JTextField x = field(placed ? Integer.toString(current.x) : "");
+        JTextField y = field(placed ? Integer.toString(current.y) : "");
+        JButton mark = new JButton("Marcar na tela");
+        Runnable sync = () -> {
+            x.setEnabled(move.isSelected());
+            y.setEnabled(move.isSelected());
+            mark.setEnabled(move.isSelected());
+        };
+        sync.run();
+        move.addActionListener(e -> sync.run());
+        JButton capture = new JButton("Gravar rolagem");
+        capture.setToolTipText("Gire a roda do mouse de verdade; a direção, as linhas e a posição são preenchidas");
+        GapEditor gap = new GapEditor(current);
+        JPanel form = column(
+                new JLabel("Gira a roda do mouse onde o ponteiro estiver."),
+                row(new JLabel("Direção"), direction, new JLabel("Linhas"), amount, capture),
+                row(move, new JLabel("X"), x, new JLabel("Y"), y, mark),
+                gap.panel());
+        JDialog dialog = dialog(owner, current == null ? "Nova rolagem" : "Editar rolagem");
+        int[] action = {CANCEL};
+        mark.addActionListener(e -> {
+            action[0] = PICK;
+            dialog.setVisible(false);
+        });
+        capture.addActionListener(e -> {
+            action[0] = CAPTURE;
+            dialog.setVisible(false);
+        });
+        JButton ok = accept(dialog, action, () -> {
+            try {
+                amount.commitEdit();
+            } catch (ParseException ex) {
+                warn(dialog, "Informe quantas linhas rolar.");
+                return false;
+            }
+            if (move.isSelected() && (parse(x) == null || parse(y) == null)) {
+                warn(dialog, "Informe X e Y com números inteiros, ou marque na tela.");
+                return false;
+            }
+            return true;
+        });
+        mount(dialog, form, ok);
+        while (true) {
+            dialog.setVisible(true);
+            if (action[0] == PICK) {
+                action[0] = CANCEL;
+                var point = ScreenPicker.pick();
+                if (point != null) {
+                    x.setText(Integer.toString(point.x));
+                    y.setText(Integer.toString(point.y));
+                }
+                continue;
+            }
+            if (action[0] == CAPTURE) {
+                action[0] = CANCEL;
+                Step got = ScrollCapture.capture(owner);
+                if (got != null) {
+                    direction.setSelectedIndex(got.scroll < 0 ? 1 : 0);
+                    amount.setValue(Math.abs(got.scroll));
+                    move.setSelected(true);
+                    x.setText(Integer.toString(got.x));
+                    y.setText(Integer.toString(got.y));
+                    sync.run();
+                }
+                continue;
+            }
+            dialog.dispose();
+            if (action[0] != OK) return null;
+            int count = ((Number) amount.getValue()).intValue();
+            int signed = direction.getSelectedIndex() == 1 ? -count : count;
+            boolean at = move.isSelected();
+            return Step.scroll(at ? parse(x) : 0, at ? parse(y) : 0, signed, at).withGap(gap.value());
+        }
     }
 
     public static Step wait(Window owner, Step current) {

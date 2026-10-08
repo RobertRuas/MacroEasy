@@ -5,7 +5,7 @@ import java.util.Arrays;
 
 /** One macro action. Fields unused by a kind stay at their defaults. */
 public final class Step {
-    public enum Kind { CLICK, TEXT, KEYS, WAIT, FOCUS }
+    public enum Kind { CLICK, TEXT, KEYS, WAIT, FOCUS, SCROLL }
 
     public final Kind kind;
     public final int x;
@@ -16,11 +16,16 @@ public final class Step {
     public final boolean paste;
     public final int[] keys;
     public final int waitMs;
+    /** Wheel lines for SCROLL. Positive rolls down, negative rolls up. */
+    public final int scroll;
+    /** Whether SCROLL moves the pointer to x, y before rolling. */
+    public final boolean move;
     /** Pause before this step, in milliseconds. Negative means the shared interval. */
     public final int gapMs;
 
     private Step(Kind kind, int x, int y, int button, int clicks,
-                 String text, boolean paste, int[] keys, int waitMs, int gapMs) {
+                 String text, boolean paste, int[] keys, int waitMs,
+                 int scroll, boolean move, int gapMs) {
         this.kind = kind;
         this.x = x;
         this.y = y;
@@ -30,33 +35,40 @@ public final class Step {
         this.paste = paste;
         this.keys = keys == null ? new int[0] : keys;
         this.waitMs = waitMs;
+        this.scroll = scroll;
+        this.move = move;
         this.gapMs = gapMs;
     }
 
     public static Step click(int x, int y, int button, int clicks) {
-        return new Step(Kind.CLICK, x, y, button, Math.max(1, clicks), "", true, null, 0, -1);
+        return new Step(Kind.CLICK, x, y, button, Math.max(1, clicks), "", true, null, 0, 0, false, -1);
     }
 
     public static Step text(String text, boolean paste) {
-        return new Step(Kind.TEXT, 0, 0, 1, 1, text, paste, null, 0, -1);
+        return new Step(Kind.TEXT, 0, 0, 1, 1, text, paste, null, 0, 0, false, -1);
     }
 
     public static Step keys(int[] keys) {
-        return new Step(Kind.KEYS, 0, 0, 1, 1, "", true, Arrays.copyOf(keys, keys.length), 0, -1);
+        return new Step(Kind.KEYS, 0, 0, 1, 1, "", true, Arrays.copyOf(keys, keys.length), 0, 0, false, -1);
     }
 
     public static Step wait(int ms) {
-        return new Step(Kind.WAIT, 0, 0, 1, 1, "", true, null, Math.max(0, ms), -1);
+        return new Step(Kind.WAIT, 0, 0, 1, 1, "", true, null, Math.max(0, ms), 0, false, -1);
     }
 
     /** Bring an already open application window to the front. */
     public static Step focus(String app, String window) {
         String title = window == null ? "" : window;
-        return new Step(Kind.FOCUS, 0, 0, 1, 1, (app == null ? "" : app) + "\n" + title, true, null, 0, -1);
+        return new Step(Kind.FOCUS, 0, 0, 1, 1, (app == null ? "" : app) + "\n" + title, true, null, 0, 0, false, -1);
+    }
+
+    /** Roll the mouse wheel. {@code lines} > 0 rolls down; {@code move} points the mouse at x, y first. */
+    public static Step scroll(int x, int y, int lines, boolean move) {
+        return new Step(Kind.SCROLL, x, y, 1, 1, "", true, null, 0, lines, move, -1);
     }
 
     public Step withGap(int gapMs) {
-        return new Step(kind, x, y, button, clicks, text, paste, keys, waitMs, gapMs);
+        return new Step(kind, x, y, button, clicks, text, paste, keys, waitMs, scroll, move, gapMs);
     }
 
     public String appName() {
@@ -76,8 +88,14 @@ public final class Step {
             case KEYS -> "Atalho  " + keyLabel(keys);
             case WAIT -> "Esperar  " + waitMs + " ms";
             case FOCUS -> focusLabel();
+            case SCROLL -> scrollLabel();
         };
         return gapMs >= 0 && kind != Kind.WAIT ? label + "    " + gapMs + " ms" : label;
+    }
+
+    private String scrollLabel() {
+        String label = "Rolar " + (scroll < 0 ? "para cima" : "para baixo") + "  " + Math.abs(scroll);
+        return move ? label + "  em " + x + ", " + y : label;
     }
 
     private String focusLabel() {
@@ -102,6 +120,7 @@ public final class Step {
             case KEYS -> "KEYS " + join(keys);
             case WAIT -> "WAIT " + waitMs;
             case FOCUS -> "FOCUS " + escape(text);
+            case SCROLL -> "SCROLL " + scroll + " " + x + " " + y + " " + (move ? 1 : 0);
         };
         return body + "|g" + gapMs;
     }
@@ -124,6 +143,9 @@ public final class Step {
                 case "KEYS" -> keys(parseKeys(p[1]));
                 case "WAIT" -> wait(Integer.parseInt(p[1]));
                 case "FOCUS" -> focusFrom(unescape(line.substring(6)));
+                case "SCROLL" -> scroll(
+                        Integer.parseInt(p[2]), Integer.parseInt(p[3]),
+                        Integer.parseInt(p[1]), !"0".equals(p[4]));
                 default -> null;
             };
             return step == null ? null : step.withGap(gap);
