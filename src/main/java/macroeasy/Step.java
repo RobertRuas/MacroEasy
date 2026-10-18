@@ -98,7 +98,13 @@ public final class Step {
     }
 
     public String describe() {
-        String label = switch (kind) {
+        String label = label();
+        return gapMs >= 0 && kind != Kind.WAIT ? label + "    " + gapMs + " ms" : label;
+    }
+
+    /** What the step does, without its own interval. */
+    public String label() {
+        return switch (kind) {
             case CLICK -> clickLabel();
             case TEXT -> "Digitar  " + clip(text.replace('\n', '↵'));
             case KEYS -> "Atalho  " + keyLabel(keys);
@@ -107,7 +113,6 @@ public final class Step {
             case SCROLL -> scrollLabel();
             case DRAG -> "Arrastar " + buttonName() + "  " + x + ", " + y + "  →  " + x2 + ", " + y2;
         };
-        return gapMs >= 0 && kind != Kind.WAIT ? label + "    " + gapMs + " ms" : label;
     }
 
     private String scrollLabel() {

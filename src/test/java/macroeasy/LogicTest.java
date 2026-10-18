@@ -84,9 +84,9 @@ class LogicTest {
 
     @Test
     void windowFitsSmallAndLargeScreens() {
-        assertEquals(new Dimension(980, 600), WindowSize.defaultSize(2560, 1440));
+        assertEquals(new Dimension(960, 560), WindowSize.defaultSize(2560, 1440));
         Dimension laptop = WindowSize.defaultSize(1280, 800);
         assertTrue(laptop.width <= 1280 && laptop.height <= 800);
-        assertTrue(laptop.width >= 820 && laptop.height >= 500);
+        assertTrue(laptop.width >= 600 && laptop.height >= 400);
     }
 }

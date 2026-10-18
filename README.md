@@ -2,7 +2,7 @@
 
 Aplicação de macros por passos, em Java. No macOS ela grava, executa e traz janelas à frente. No Windows e no Linux o mesmo programa executa cliques, arrastos, texto, atalhos, rolagem e esperas.
 
-Versão 1.1. Desenvolvedor: Robert.
+Versão 1.2. Desenvolvedor: Robert.
 
 ## Onde roda
 
@@ -14,7 +14,7 @@ Versão 1.1. Desenvolvedor: Robert.
 
 ## Como usar no macOS
 
-1. Baixe `MacroEasy.zip` em [Releases](https://github.com/RobertRuas/MacroEasy/releases/tag/v1.1).
+1. Baixe `MacroEasy.zip` em [Releases](https://github.com/RobertRuas/MacroEasy/releases/latest).
 2. Abra o zip e o `MacroEasy.app`.
 3. Autorize Acessibilidade e Monitoramento de entrada. Ative o interruptor e clique em Reabrir. O macOS só grava a permissão na próxima abertura.
 4. Grave o que você faz ou monte os passos. As macros ficam em `~/Documents/MacroEasy`.
@@ -23,7 +23,7 @@ Versão 1.1. Desenvolvedor: Robert.
 ## Como usar no Windows e no Linux
 
 1. Instale um JDK 22 ou mais recente e confira com `java -version`.
-2. Baixe `MacroEasy.jar` na mesma release.
+2. Baixe `MacroEasy.jar` na [release mais recente](https://github.com/RobertRuas/MacroEasy/releases/latest).
 3. Na pasta do arquivo:
 
 ```bash
@@ -31,6 +31,15 @@ java --enable-native-access=ALL-UNNAMED -jar MacroEasy.jar
 ```
 
 O editor abre sem as permissões do macOS. A gravação avisa que está disponível só no macOS.
+
+## A janela
+
+- Uma barra no topo com Executar, Gravar, Parar, Vezes, Atraso e Intervalo. O botão ☰ guarda Nova macro, Abrir, Salvar, Desfazer, Refazer, a opção de gravar as pausas reais e o Sobre.
+- As macros ficam na barra lateral, que pode ser escondida com o botão ao lado de Executar ou com ⌘B.
+- O botão **Adicionar passo** abre a lista dos sete tipos de passo.
+- O passo selecionado mostra ali mesmo os ícones de editar, duplicar, excluir, subir e descer. O botão direito do mouse abre as mesmas ações.
+- Tema moderno (FlatLaf), claro ou escuro conforme o sistema.
+- A janela abre com cerca de dois terços da tela, aceita até 600 × 400 e lembra o tamanho e a posição.
 
 ## O que dá para fazer
 
@@ -44,8 +53,6 @@ O editor abre sem as permissões do macOS. A gravação avisa que está disponí
 - Parar a execução com Esc, mesmo com outro aplicativo em foco, com o botão flutuante ou levando o ponteiro ao canto superior esquerdo de qualquer tela.
 
 A gravação não cria passos de espera. O tempo entre as ações gravadas segue o campo Intervalo. Para guardar o tempo real de cada pausa, ative Gravação → Gravar as pausas reais: cada passo gravado recebe um intervalo próprio.
-
-A janela abre com cerca de dois terços da tela e lembra o tamanho e a posição em que foi fechada. Os botões quebram linha quando ela fica estreita.
 
 ## Permissões no macOS
 
@@ -81,7 +88,7 @@ Para gerar o `MacroEasy.app`:
 ```bash
 jpackage --type app-image --name MacroEasy --dest dist \
   --input target --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
-  --app-version 1.1 \
+  --app-version 1.2 \
   --java-options '--enable-native-access=ALL-UNNAMED'
 ```
 
@@ -103,6 +110,13 @@ No `MacroEasy.jar` (Windows, Linux), o app nunca fica bloqueado. Quando há vers
 
 A tag da release deve ser `v1.2.0` ou `1.2.0`. O zip precisa conter `MacroEasy.app`.
 
+## Publicar uma versão
+
+1. Suba o número em `pom.xml` e em `About.VERSION`.
+2. Escreva as novidades em `release-notes/vX.Y.md`.
+3. Envie a tag: `git tag vX.Y && git push origin vX.Y`. O workflow Release compila, roda os testes e cria a release com o `MacroEasy.jar`.
+4. No Mac, gere e assine o `MacroEasy.app`, compacte em `MacroEasy.zip` e anexe à mesma release. Sem o zip, o app do Mac continua na versão que já tem e não fica bloqueado.
+
 A página do projeto, para publicar depois, está em `http/`.
 
 ## Atalhos
@@ -119,6 +133,7 @@ Cada botão mostra o seu atalho ao lado do nome. No Windows e no Linux, ⌘ é C
 | Nova macro | ⌘N |
 | Novo clique, texto, atalho, espera, janela, rolagem, arrasto | ⌘1 a ⌘7 |
 | Desfazer / refazer | ⌘Z / ⇧⌘Z (Ctrl+Y também no Windows e no Linux) |
+| Mostrar ou ocultar as macros | ⌘B |
 | Editar o passo | ⌘E |
 | Duplicar o passo | ⌘D |
 | Excluir o passo | ⌘⌫ |
