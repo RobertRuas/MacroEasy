@@ -1,10 +1,8 @@
 name: Release
 
-# Publishes a release whenever main carries a version that has no release yet.
-# The version comes from pom.xml; the notes from release-notes/v<version>.md.
+# Publishes the version in pom.xml as a release, when it has none yet.
+# Run by hand (Actions -> Release -> Run workflow); the notes come from release-notes/v<version>.md.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
