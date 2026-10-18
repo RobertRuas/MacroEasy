@@ -9,7 +9,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 
 final class About {
-    static final String VERSION = "1.1";
+    static final String VERSION = "1.2";
 
     private About() {}
 
@@ -26,10 +26,10 @@ final class About {
                 Desenvolvedor
                 Robert
 
-                Aplicação de macros por passos: cliques, teclado, esperas e janelas já abertas.
+                Aplicação de macros por passos: cliques, arrastos, rolagem, teclado, esperas e janelas já abertas.
 
                 Atualização
-                Uma versão antiga não abre. A release nova é instalada sozinha.
+                No Mac, a release nova é instalada sozinha. No Windows e no Linux, o app avisa quando há versão nova.
                 """.formatted(VERSION)), BorderLayout.CENTER);
         dialog.setContentPane(body);
         dialog.pack();

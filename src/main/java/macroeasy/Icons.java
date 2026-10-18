@@ -17,6 +17,26 @@ final class Icons {
         return icon(g -> g.fillPolygon(new int[] {5, 5, 13}, new int[] {3, 13, 8}, 3));
     }
 
+    /** Play arrow in a fixed color, for the highlighted Executar button. */
+    static ImageIcon play(Color color) {
+        return icon(color, g -> g.fillPolygon(new int[] {5, 5, 13}, new int[] {3, 13, 8}, 3));
+    }
+
+    static ImageIcon menu() {
+        return icon(g -> {
+            g.drawLine(3, 4, 13, 4);
+            g.drawLine(3, 8, 13, 8);
+            g.drawLine(3, 12, 13, 12);
+        });
+    }
+
+    static ImageIcon sidebar() {
+        return icon(g -> {
+            g.drawRoundRect(2, 3, 12, 10, 2, 2);
+            g.drawLine(6, 3, 6, 13);
+        });
+    }
+
     static ImageIcon record() {
         return icon(g -> g.fillOval(4, 4, 8, 8));
     }
@@ -71,6 +91,15 @@ final class Icons {
             g.drawLine(8, 3, 11, 6);
             g.drawLine(5, 10, 8, 13);
             g.drawLine(8, 13, 11, 10);
+        });
+    }
+
+    static ImageIcon drag() {
+        return icon(g -> {
+            g.drawOval(2, 2, 4, 4);
+            g.drawLine(6, 6, 13, 13);
+            g.drawLine(13, 13, 13, 9);
+            g.drawLine(13, 13, 9, 13);
         });
     }
 
@@ -157,19 +186,32 @@ final class Icons {
             case WAIT -> clock();
             case FOCUS -> window();
             case SCROLL -> scroll();
+            case DRAG -> drag();
         };
     }
 
     private static ImageIcon icon(Consumer<Graphics2D> paint) {
-        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Color color = UIManager.getColor("Label.foreground");
+        return icon(color == null ? new Color(35, 35, 35) : color, paint);
+    }
+
+    /** Drawn at twice the size and shown at 16 points, so icons stay sharp on Retina and HiDPI screens. */
+    private static ImageIcon icon(Color color, Consumer<Graphics2D> paint) {
+        BufferedImage small = draw(1, color, paint);
+        BufferedImage large = draw(2, color, paint);
+        return new ImageIcon(new java.awt.image.BaseMultiResolutionImage(small, large));
+    }
+
+    private static BufferedImage draw(int scale, Color color, Consumer<Graphics2D> paint) {
+        BufferedImage image = new BufferedImage(16 * scale, 16 * scale, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
+        g.scale(scale, scale);
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-        Color color = UIManager.getColor("Label.foreground");
-        g.setColor(color == null ? new Color(35, 35, 35) : color);
+        g.setColor(color);
         g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         paint.accept(g);
         g.dispose();
-        return new ImageIcon(image);
+        return image;
     }
 }

@@ -95,6 +95,71 @@ public final class Editor {
         }
     }
 
+    public static Step drag(Window owner, Step current) {
+        boolean known = current != null && current.kind == Step.Kind.DRAG;
+        JTextField x = field(known ? Integer.toString(current.x) : "");
+        JTextField y = field(known ? Integer.toString(current.y) : "");
+        JTextField x2 = field(known ? Integer.toString(current.x2) : "");
+        JTextField y2 = field(known ? Integer.toString(current.y2) : "");
+        JComboBox<String> button = new JComboBox<>(new String[] {"Esquerdo", "Direito", "Meio"});
+        if (known) {
+            button.setSelectedIndex(switch (current.button) {
+                case 3 -> 1;
+                case 2 -> 2;
+                default -> 0;
+            });
+        }
+        JButton markFrom = new JButton("Marcar na tela");
+        JButton markTo = new JButton("Marcar na tela");
+        GapEditor gap = new GapEditor(current);
+        JPanel form = column(
+                row(new JLabel("De     X"), x, new JLabel("Y"), y, markFrom),
+                row(new JLabel("Para  X"), x2, new JLabel("Y"), y2, markTo),
+                row(new JLabel("Botão"), button),
+                gap.panel());
+        JDialog dialog = dialog(owner, current == null ? "Novo arrasto" : "Editar arrasto");
+        int[] action = {CANCEL};
+        boolean[] target = {false};
+        markFrom.addActionListener(e -> {
+            target[0] = false;
+            action[0] = PICK;
+            dialog.setVisible(false);
+        });
+        markTo.addActionListener(e -> {
+            target[0] = true;
+            action[0] = PICK;
+            dialog.setVisible(false);
+        });
+        JButton ok = accept(dialog, action, () -> {
+            if (parse(x) == null || parse(y) == null || parse(x2) == null || parse(y2) == null) {
+                warn(dialog, "Informe o início e o fim com números inteiros, ou marque na tela.");
+                return false;
+            }
+            return true;
+        });
+        mount(dialog, form, ok);
+        while (true) {
+            dialog.setVisible(true);
+            if (action[0] == PICK) {
+                action[0] = CANCEL;
+                var point = ScreenPicker.pick();
+                if (point != null) {
+                    (target[0] ? x2 : x).setText(Integer.toString(point.x));
+                    (target[0] ? y2 : y).setText(Integer.toString(point.y));
+                }
+                continue;
+            }
+            dialog.dispose();
+            if (action[0] != OK) return null;
+            int which = switch (button.getSelectedIndex()) {
+                case 1 -> 3;
+                case 2 -> 2;
+                default -> 1;
+            };
+            return Step.drag(parse(x), parse(y), parse(x2), parse(y2), which).withGap(gap.value());
+        }
+    }
+
     public static Step text(Window owner, Step current) {
         JTextArea area = new JTextArea(current == null ? "" : current.text, 5, 36);
         area.setLineWrap(true);

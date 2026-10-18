@@ -16,10 +16,13 @@ import java.util.function.BooleanSupplier;
 /** Plays steps with {@link Robot}. Returns false when stopped early. */
 public final class Player {
     private static final int TAP_MS = 25;
+    /** Esc after this is ignored, so a macro step that presses Esc does not stop itself. */
+    private static final long ESCAPE_QUIET_NS = 250_000_000L;
     private final Robot robot;
     private final BooleanSupplier stop;
+    private volatile long escapeQuietUntil;
 
-    public Player(BooleanSupplier stop) throws Exception {
+    public Player(BooleanSupplier stop) throws java.awt.AWTException {
         this.robot = new Robot();
         this.robot.setAutoDelay(0);
         this.stop = stop;
@@ -54,31 +57,67 @@ public final class Player {
             case WAIT -> pause(step.waitMs);
             case FOCUS -> focus(step);
             case SCROLL -> scroll(step);
+            case DRAG -> drag(step);
         };
     }
 
+    /** Presses at the start, glides to the end in small moves so apps see a real drag, and releases. */
+    private boolean drag(Step step) {
+        if (!pause(40)) return false;
+        robot.mouseMove(step.x, step.y);
+        if (!pause(40)) return false;
+        int mask = mask(step.button);
+        try {
+            robot.mousePress(mask);
+            if (!pause(60)) return false;
+            int moves = 20;
+            for (int i = 1; i <= moves; i++) {
+                if (stopped()) return false;
+                int x = step.x + (step.x2 - step.x) * i / moves;
+                int y = step.y + (step.y2 - step.y) * i / moves;
+                robot.mouseMove(x, y);
+                pause(15);
+            }
+            pause(60);
+        } finally {
+            robot.mouseRelease(mask);
+        }
+        return pause(40);
+    }
+
+    private static int mask(int button) {
+        return switch (button) {
+            case 3 -> InputEvent.BUTTON3_DOWN_MASK;
+            case 2 -> InputEvent.BUTTON2_DOWN_MASK;
+            default -> InputEvent.BUTTON1_DOWN_MASK;
+        };
+    }
+
+    /** Pause between wheel notches. Steady pacing lets apps with smooth scrolling keep up, so each run lands in the same place. */
+    private static final int NOTCH_MS = 30;
+    /** Wait after the last notch for smooth-scroll animations to finish before the next step. */
+    private static final int SCROLL_SETTLE_MS = 220;
+
     /**
-     * Rolls the wheel a few lines at a time so Stop still reacts mid-way.
-     * On macOS {@link Robot#mouseWheel} rolls up for positive values, the opposite
-     * of its documentation, so the sign is flipped there.
+     * Rolls the wheel one notch at a time at a steady pace, so the distance is the same on every run
+     * and Stop still reacts mid-way. Moving the pointer first gives the app time to see what is under it.
+     * On macOS {@link Robot#mouseWheel} rolls up for positive values, the opposite of its documentation,
+     * so the sign is flipped there.
      */
     private boolean scroll(Step step) {
         if (step.scroll == 0) return true;
         if (step.move) {
             if (!pause(40)) return false;
             robot.mouseMove(step.x, step.y);
-            if (!pause(30)) return false;
+            if (!pause(80)) return false;
         }
-        int left = Math.abs(step.scroll);
         int sign = (step.scroll < 0) == isMac() ? 1 : -1;
-        while (left > 0) {
+        for (int left = Math.abs(step.scroll); left > 0; left--) {
             if (stopped()) return false;
-            int chunk = Math.min(3, left);
-            robot.mouseWheel(sign * chunk);
-            left -= chunk;
-            if (left > 0 && !pause(20)) return false;
+            robot.mouseWheel(sign);
+            if (left > 1 && !pause(NOTCH_MS)) return false;
         }
-        return pause(40);
+        return pause(SCROLL_SETTLE_MS);
     }
 
     private boolean focus(Step step) {
@@ -90,11 +129,7 @@ public final class Player {
         if (!pause(40)) return false;
         robot.mouseMove(step.x, step.y);
         if (!pause(30)) return false;
-        int mask = switch (step.button) {
-            case 3 -> InputEvent.BUTTON3_DOWN_MASK;
-            case 2 -> InputEvent.BUTTON2_DOWN_MASK;
-            default -> InputEvent.BUTTON1_DOWN_MASK;
-        };
+        int mask = mask(step.button);
         int times = Math.max(1, step.clicks);
         for (int i = 0; i < times; i++) {
             if (stopped()) return false;
@@ -111,6 +146,9 @@ public final class Player {
 
     private boolean chord(int[] keys) {
         if (keys.length == 0) return true;
+        boolean escape = false;
+        for (int key : keys) escape |= key == KeyEvent.VK_ESCAPE;
+        if (escape) escapeQuietUntil = Long.MAX_VALUE;
         try {
             for (int key : keys) {
                 if (stopped()) return false;
@@ -126,6 +164,7 @@ public final class Player {
                     // Unknown code: nothing held down under that id.
                 }
             }
+            if (escape) escapeQuietUntil = System.nanoTime() + ESCAPE_QUIET_NS;
         }
     }
 
@@ -202,16 +241,28 @@ public final class Player {
     }
 
     private boolean stopped() {
-        return stop.getAsBoolean() || cornerAbort();
+        return stop.getAsBoolean() || cornerAbort() || escapeAbort();
     }
 
+    /** Esc held down in any app stops the macro, except right after a step that pressed Esc itself. */
+    private boolean escapeAbort() {
+        return System.nanoTime() >= escapeQuietUntil && EscapeKey.down();
+    }
+
+    /** The pointer in the top-left corner of any connected screen stops the macro. */
     public static boolean cornerAbort() {
         var info = java.awt.MouseInfo.getPointerInfo();
         if (info == null) return false;
         var point = info.getLocation();
-        Rectangle screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
-                .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
-        return point.x <= screen.x + 8 && point.y <= screen.y + 8;
+        for (var device : java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+            Rectangle screen = device.getDefaultConfiguration().getBounds();
+            if (inCorner(point.x, point.y, screen)) return true;
+        }
+        return false;
+    }
+
+    static boolean inCorner(int x, int y, Rectangle screen) {
+        return x >= screen.x && y >= screen.y && x <= screen.x + 8 && y <= screen.y + 8;
     }
 
     private static boolean isMac() {

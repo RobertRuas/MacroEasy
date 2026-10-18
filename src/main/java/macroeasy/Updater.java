@@ -31,7 +31,13 @@ import javax.swing.JProgressBar;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
-/** Installs a newer GitHub release. The progress modal stays up for at least ten seconds. */
+/**
+ * Keeps MacroEasy on the newest GitHub release.
+ * The macOS app installs a newer release by itself; the progress modal stays up for at least ten seconds.
+ * The jar (Windows, Linux, or a Mac without the app bundle) only offers the download and never blocks.
+ * Without a network, or when GitHub does not answer, the app opens normally unless a newer release
+ * was already seen, because an unknown answer is not a reason to lock the user out.
+ */
 final class Updater {
     static final String REPO = "RobertRuas/MacroEasy";
     private static final long MINIMUM_MS = 10_000;
@@ -42,9 +48,8 @@ final class Updater {
     private static final AtomicBoolean installing = new AtomicBoolean();
     private static final Preferences prefs = Preferences.userNodeForPackage(MacroEasy.class);
     private static final String REQUIRED = "requiredVersion";
-    private static final String CHECKED_VERSION = "checkedVersion";
-    private static final String CHECKED_AT = "checkedAt";
-    private static final long GRACE_MS = 5L * 60 * 1000;
+    private static final String OFFERED = "offeredVersion";
+    static final String RELEASES = "https://github.com/" + REPO + "/releases/latest";
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.ofSeconds(15))
@@ -68,23 +73,55 @@ final class Updater {
 
     private static void look(MacroEasy app, Runnable ready) {
         if (app.busy() || !checking.compareAndSet(false, true)) return;
+        boolean managed = installsItself();
         try {
             Release release = latest();
             if (release == null || !newer(release.version, About.VERSION)) {
-                rememberCurrent();
-                clearFailure();
+                prefs.remove(REQUIRED);
+                if (managed) clearFailure();
                 SwingUtilities.invokeLater(ready);
+                return;
+            }
+            if (!managed) {
+                SwingUtilities.invokeLater(ready);
+                offer(app, strip(release.version));
                 return;
             }
             prefs.put(REQUIRED, strip(release.version));
             boolean automatic = autoInstall(readFailure(), release.version, About.VERSION);
             SwingUtilities.invokeLater(() -> open(app, release, automatic, ready));
         } catch (Exception ignored) {
-            if (offlineOk()) SwingUtilities.invokeLater(ready);
+            if (!managed || allowedOffline(About.VERSION, prefs.get(REQUIRED, ""))) SwingUtilities.invokeLater(ready);
             else SwingUtilities.invokeLater(() -> open(app, null, false, ready));
         } finally {
             checking.set(false);
         }
+    }
+
+    /** Only the macOS app bundle can replace itself. The jar never blocks the editor. */
+    static boolean installsItself() {
+        return System.getProperty("os.name", "").toLowerCase().contains("mac") && bundle() != null;
+    }
+
+    /** Tells the jar user, once per version, that a newer release can be downloaded. */
+    private static void offer(MacroEasy app, String version) {
+        if (version.equals(prefs.get(OFFERED, ""))) return;
+        prefs.put(OFFERED, version);
+        SwingUtilities.invokeLater(() -> {
+            if (!app.isDisplayable()) return;
+            Object[] choices = {"Abrir a página", "Agora não"};
+            int choice = javax.swing.JOptionPane.showOptionDialog(app,
+                    "A versão " + version + " do MacroEasy está disponível.",
+                    "MacroEasy", javax.swing.JOptionPane.DEFAULT_OPTION,
+                    javax.swing.JOptionPane.INFORMATION_MESSAGE, null, choices, choices[0]);
+            if (choice != 0) return;
+            try {
+                java.awt.Desktop.getDesktop().browse(URI.create(RELEASES));
+            } catch (Exception ignored) {
+                javax.swing.JOptionPane.showMessageDialog(app, RELEASES, "MacroEasy",
+                        javax.swing.JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
     }
 
     static Release latest() throws IOException, InterruptedException {
@@ -143,23 +180,9 @@ final class Updater {
         }
     }
 
-    /** Offline use only after this exact version was confirmed, and only for five minutes. */
-    static boolean allowedOffline(String current, String checkedVersion, long checkedAt, long now, String required) {
-        if (newer(required, current)) return false;
-        if (current == null || current.isBlank() || !current.equals(strip(checkedVersion))) return false;
-        if (checkedAt <= 0 || now < checkedAt) return false;
-        return now - checkedAt <= GRACE_MS;
-    }
-
-    private static void rememberCurrent() {
-        prefs.remove(REQUIRED);
-        prefs.put(CHECKED_VERSION, About.VERSION);
-        prefs.putLong(CHECKED_AT, System.currentTimeMillis());
-    }
-
-    private static boolean offlineOk() {
-        return allowedOffline(About.VERSION, prefs.get(CHECKED_VERSION, ""),
-                prefs.getLong(CHECKED_AT, 0), System.currentTimeMillis(), prefs.get(REQUIRED, ""));
+    /** Without an answer from GitHub the app opens, unless a newer release than this one was already seen. */
+    static boolean allowedOffline(String current, String required) {
+        return !newer(required, current);
     }
 
     static boolean newer(String latest, String current) {
@@ -227,7 +250,7 @@ final class Updater {
         JLabel version = new JLabel(release == null ? "Sem conexão" : "Versão " + strip(release.version));
         version.setFont(version.getFont().deriveFont(12f));
         JLabel detail = new JLabel(release == null
-                ? "Esta versão não abre sem confirmar a release mais recente."
+                ? "Já existe uma versão nova. Conecte-se à internet para instalar."
                 : "Esta versão não pode ser usada. O app abre de novo sozinho.");
         detail.setFont(detail.getFont().deriveFont(12f));
         Color muted = UIColor();
@@ -536,14 +559,23 @@ final class Updater {
     }
 
     private static Path installedApp() {
-        String command = ProcessHandle.current().info().command().orElse("");
-        Path macOs = command.isBlank() ? null : Path.of(command).getParent();
+        Path app = bundle();
+        return app != null ? app : Path.of(System.getProperty("user.home"), "Applications", "MacroEasy.app");
+    }
+
+    /** The running MacroEasy.app, or null when started from the jar. */
+    static Path bundle() {
+        return bundleOf(ProcessHandle.current().info().command().orElse(""));
+    }
+
+    static Path bundleOf(String command) {
+        Path macOs = command == null || command.isBlank() ? null : Path.of(command).getParent();
         if (macOs != null && "MacOS".equals(String.valueOf(macOs.getFileName()))) {
             Path contents = macOs.getParent();
             Path app = contents == null ? null : contents.getParent();
             if (app != null && String.valueOf(app.getFileName()).endsWith(".app")) return app;
         }
-        return Path.of(System.getProperty("user.home"), "Applications", "MacroEasy.app");
+        return null;
     }
 
     private static String q(Path path) {

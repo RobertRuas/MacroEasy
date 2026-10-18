@@ -50,6 +50,8 @@ final class Windows {
         private static Native loaded;
         private static boolean failed;
         private final Arena arena = Arena.global();
+        /** Short-lived buffers for one list or raise call, freed when it returns. */
+        private Arena scratch;
         private final MethodHandle windowList;
         private final MethodHandle arrayCount;
         private final MethodHandle arrayAt;
@@ -133,6 +135,17 @@ final class Windows {
 
         List<Item> list() {
             synchronized (this) {
+                try (Arena temp = Arena.ofConfined()) {
+                    scratch = temp;
+                    return listNow();
+                } finally {
+                    scratch = null;
+                }
+            }
+        }
+
+        private List<Item> listNow() {
+            {
                 List<int[]> apps = new ArrayList<>();
                 List<String> names = new ArrayList<>();
                 MemorySegment array = MemorySegment.NULL;
@@ -170,6 +183,17 @@ final class Windows {
 
         void raise(String app, String title) {
             synchronized (this) {
+                try (Arena temp = Arena.ofConfined()) {
+                    scratch = temp;
+                    raiseNow(app, title);
+                } finally {
+                    scratch = null;
+                }
+            }
+        }
+
+        private void raiseNow(String app, String title) {
+            {
                 int pid = pidOf(app, title);
                 if (pid <= 0) return;
                 MemorySegment application = MemorySegment.NULL;
@@ -260,7 +284,7 @@ final class Windows {
 
         private MemorySegment copy(MemorySegment element, MemorySegment attribute) throws Throwable {
             if (element.address() == 0) return MemorySegment.NULL;
-            MemorySegment slot = arena.allocate(ValueLayout.ADDRESS);
+            MemorySegment slot = scratch.allocate(ValueLayout.ADDRESS);
             int error = (int) copyAttr.invokeExact(element, attribute, slot);
             if (error != 0) return MemorySegment.NULL;
             return slot.get(ValueLayout.ADDRESS, 0);
@@ -274,14 +298,14 @@ final class Windows {
         private int number(MemorySegment dict, MemorySegment key) throws Throwable {
             MemorySegment value = (MemorySegment) dictGet.invokeExact(dict, key);
             if (value.address() == 0) return -1;
-            MemorySegment out = arena.allocate(ValueLayout.JAVA_INT);
+            MemorySegment out = scratch.allocate(ValueLayout.JAVA_INT);
             boolean ok = (boolean) numberValue.invokeExact(value, 9, out);
             return ok ? out.get(ValueLayout.JAVA_INT, 0) : -1;
         }
 
         private String text(MemorySegment segment) throws Throwable {
             if (segment == null || segment.address() == 0) return "";
-            MemorySegment buffer = arena.allocate(1024);
+            MemorySegment buffer = scratch.allocate(1024);
             boolean ok = (boolean) cString.invokeExact(segment, buffer, 1024L, 0x08000100);
             return ok ? buffer.getString(0) : "";
         }

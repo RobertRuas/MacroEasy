@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '22'
+          cache: maven
+      - run: mvn -B package
+      - name: Publish the release with the jar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="release-notes/${TAG}.md"
+          [ -f "$notes" ] || { echo "Versão ${TAG#v}." > /tmp/notes.md; notes=/tmp/notes.md; }
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" target/MacroEasy.jar --clobber
+          else
+            gh release create "$TAG" target/MacroEasy.jar --title "MacroEasy ${TAG#v}" --notes-file "$notes"
+          fi
