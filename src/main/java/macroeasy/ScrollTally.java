@@ -1,9 +1,13 @@
 package macroeasy;
 
-/** Adds up wheel movement, fractions of a line included, into one scroll step. */
+/**
+ * Adds up wheel movement into one scroll step. When the system reports the distance in screen
+ * points (macOS), the step keeps the exact points; otherwise it keeps lines, fractions included.
+ */
 final class ScrollTally {
     private boolean active;
     private double total;
+    private long points;
     private int x;
     private int y;
     private int gapMs;
@@ -18,15 +22,29 @@ final class ScrollTally {
     void start(int x, int y, int gapMs) {
         active = true;
         total = 0;
+        points = 0;
         shown = false;
         this.x = x;
         this.y = y;
         this.gapMs = gapMs;
     }
 
-    /** Returns the step for the distance so far, or null while it still rounds to zero lines. */
+    /** Lines only. Returns the step for the distance so far, or null while it still rounds to zero lines. */
     Step add(double lines) {
+        return add(lines, 0);
+    }
+
+    /**
+     * {@code lines} and {@code points} describe the same movement, positive rolling down.
+     * Returns the step for the distance so far, or null while it is still zero.
+     */
+    Step add(double lines, long points) {
         total += lines;
+        this.points += points;
+        if (this.points != 0) {
+            int capped = (int) Math.max(-1_000_000, Math.min(1_000_000, this.points));
+            return Step.scrollPoints(x, y, capped, true).withGap(gapMs);
+        }
         int rounded = (int) Math.round(total);
         if (rounded == 0) return null;
         return Step.scroll(x, y, rounded, true).withGap(gapMs);
@@ -35,6 +53,7 @@ final class ScrollTally {
     void reset() {
         active = false;
         total = 0;
+        points = 0;
         shown = false;
     }
 }

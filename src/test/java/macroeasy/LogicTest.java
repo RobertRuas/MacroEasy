@@ -89,4 +89,55 @@ class LogicTest {
         assertTrue(laptop.width <= 1280 && laptop.height <= 800);
         assertTrue(laptop.width >= 600 && laptop.height >= 400);
     }
+    @Test
+    void dragPathStartsGentlyAndEndsOnTheTarget() {
+        int[][] path = Player.dragPath(100, 100, 400, 100);
+        assertEquals(102, path[0][0]);
+        assertEquals(105, path[1][0]);
+        assertTrue(path.length >= 30);
+        assertEquals(399, path[path.length - 2][0]);
+        assertEquals(400, path[path.length - 1][0]);
+        assertEquals(100, path[path.length - 1][1]);
+        for (int i = 1; i < path.length; i++) {
+            assertTrue(path[i][0] >= path[i - 1][0]);
+            assertTrue(path[i][0] - path[i - 1][0] <= 12);
+        }
+        int[][] tiny = Player.dragPath(10, 10, 13, 10);
+        assertEquals(13, tiny[tiny.length - 1][0]);
+    }
+
+    @Test
+    void pointScrollSlicesAddUpExactly() {
+        int[] parts = MacScroll.slices(-347, 20);
+        int sum = 0;
+        for (int part : parts) {
+            sum += part;
+            assertTrue(Math.abs(part) <= 20 && part < 0);
+        }
+        assertEquals(-347, sum);
+        assertEquals(1, MacScroll.slices(5, 20).length);
+    }
+
+    @Test
+    void trackpadPointsAreKeptExactly() {
+        ScrollTally tally = new ScrollTally();
+        tally.start(10, 20, -1);
+        assertEquals(37, tally.add(0.3, 37).scroll);
+        Step step = tally.add(0.6, 120);
+        assertTrue(step.pixels);
+        assertEquals(157, step.scroll);
+        assertEquals(4, step.scrollLines());
+    }
+
+    @Test
+    void pointScrollSurvivesSaving() {
+        Step step = Step.scrollPoints(5, 6, -240, true).withGap(90);
+        Step back = Step.parse(step.encode());
+        assertTrue(back.pixels);
+        assertEquals(-240, back.scroll);
+        assertEquals(90, back.gapMs);
+        Step lines = Step.parse("SCROLL 3 5 6 1|g-1");
+        assertFalse(lines.pixels);
+        assertEquals(3, lines.scrollLines());
+    }
 }

@@ -492,8 +492,11 @@ public final class MacroEasy extends JFrame {
         bind("down", KEY_DOWN, () -> move(1));
     }
 
+    /** Goes straight to the screen: the click lands where the user clicks. It can be edited afterwards. */
     private void newClick() {
-        if (!busy()) insert(Editor.click(this, null));
+        if (busy()) return;
+        java.awt.Point at = ScreenPicker.pick(this, "Posição do clique", null);
+        if (at != null) insert(Step.click(at.x, at.y, 1, 1));
     }
 
     private void newText() {
@@ -516,8 +519,13 @@ public final class MacroEasy extends JFrame {
         if (!busy()) insert(Editor.scroll(this, null));
     }
 
+    /** Asks for the start on screen, then right away for the end. */
     private void newDrag() {
-        if (!busy()) insert(Editor.drag(this, null));
+        if (busy()) return;
+        java.awt.Point from = ScreenPicker.pick(this, "Ponto inicial do arrasto", null);
+        if (from == null) return;
+        java.awt.Point to = ScreenPicker.pick(this, "Ponto final: onde soltar", from);
+        if (to != null) insert(Step.drag(from.x, from.y, to.x, to.y, 1));
     }
 
     /** Saves the list as it is now so the next change can be undone. */

@@ -77,7 +77,7 @@ public final class Editor {
             dialog.setVisible(true);
             if (action[0] == PICK) {
                 action[0] = CANCEL;
-                var point = ScreenPicker.pick();
+                var point = ScreenPicker.pick(owner, "Posição do clique", null);
                 if (point != null) {
                     x.setText(Integer.toString(point.x));
                     y.setText(Integer.toString(point.y));
@@ -142,7 +142,9 @@ public final class Editor {
             dialog.setVisible(true);
             if (action[0] == PICK) {
                 action[0] = CANCEL;
-                var point = ScreenPicker.pick();
+                var point = target[0]
+                        ? ScreenPicker.pick(owner, "Ponto final", start(x, y))
+                        : ScreenPicker.pick(owner, "Ponto inicial", null);
                 if (point != null) {
                     (target[0] ? x2 : x).setText(Integer.toString(point.x));
                     (target[0] ? y2 : y).setText(Integer.toString(point.y));
@@ -158,6 +160,13 @@ public final class Editor {
             };
             return Step.drag(parse(x), parse(y), parse(x2), parse(y2), which).withGap(gap.value());
         }
+    }
+
+    /** The point typed in x and y, or null while either is empty or not a number. */
+    private static java.awt.Point start(JTextField x, JTextField y) {
+        Integer px = parse(x);
+        Integer py = parse(y);
+        return px == null || py == null ? null : new java.awt.Point(px, py);
     }
 
     public static Step text(Window owner, Step current) {
@@ -288,8 +297,11 @@ public final class Editor {
     public static Step scroll(Window owner, Step current) {
         JComboBox<String> direction = new JComboBox<>(new String[] {"Para baixo", "Para cima"});
         int lines = current == null ? 5 : Math.max(1, Math.abs(current.scroll));
-        JSpinner amount = new JSpinner(new SpinnerNumberModel(lines, 1, 10_000, 1));
-        ((JSpinner.DefaultEditor) amount.getEditor()).getTextField().setColumns(4);
+        JSpinner amount = new JSpinner(new SpinnerNumberModel(lines, 1, 1_000_000, 1));
+        ((JSpinner.DefaultEditor) amount.getEditor()).getTextField().setColumns(5);
+        JComboBox<String> unit = new JComboBox<>(new String[] {"linhas", "pixels"});
+        unit.setToolTipText("Pixels rolam exatamente a mesma distância a cada execução (macOS)");
+        if (current != null && current.pixels) unit.setSelectedIndex(1);
         if (current != null && current.scroll < 0) direction.setSelectedIndex(1);
         boolean placed = current != null && current.move;
         JCheckBox move = new JCheckBox("Levar o mouse antes para");
@@ -305,11 +317,11 @@ public final class Editor {
         sync.run();
         move.addActionListener(e -> sync.run());
         JButton capture = new JButton("Gravar rolagem");
-        capture.setToolTipText("Gire a roda do mouse de verdade; a direção, as linhas e a posição são preenchidas");
+        capture.setToolTipText("Role de verdade com a roda ou o trackpad; a direção, a distância e a posição são preenchidas");
         GapEditor gap = new GapEditor(current);
         JPanel form = column(
-                new JLabel("Gira a roda do mouse onde o ponteiro estiver."),
-                row(new JLabel("Direção"), direction, new JLabel("Linhas"), amount, capture),
+                new JLabel("Rola onde o ponteiro estiver."),
+                row(new JLabel("Direção"), direction, amount, unit, capture),
                 row(move, new JLabel("X"), x, new JLabel("Y"), y, mark),
                 gap.panel());
         JDialog dialog = dialog(owner, current == null ? "Nova rolagem" : "Editar rolagem");
@@ -326,7 +338,7 @@ public final class Editor {
             try {
                 amount.commitEdit();
             } catch (ParseException ex) {
-                warn(dialog, "Informe quantas linhas rolar.");
+                warn(dialog, "Informe quanto rolar.");
                 return false;
             }
             if (move.isSelected() && (parse(x) == null || parse(y) == null)) {
@@ -340,7 +352,7 @@ public final class Editor {
             dialog.setVisible(true);
             if (action[0] == PICK) {
                 action[0] = CANCEL;
-                var point = ScreenPicker.pick();
+                var point = ScreenPicker.pick(owner, "Onde rolar", null);
                 if (point != null) {
                     x.setText(Integer.toString(point.x));
                     y.setText(Integer.toString(point.y));
@@ -353,6 +365,7 @@ public final class Editor {
                 if (got != null) {
                     direction.setSelectedIndex(got.scroll < 0 ? 1 : 0);
                     amount.setValue(Math.abs(got.scroll));
+                    unit.setSelectedIndex(got.pixels ? 1 : 0);
                     move.setSelected(true);
                     x.setText(Integer.toString(got.x));
                     y.setText(Integer.toString(got.y));
@@ -365,7 +378,10 @@ public final class Editor {
             int count = ((Number) amount.getValue()).intValue();
             int signed = direction.getSelectedIndex() == 1 ? -count : count;
             boolean at = move.isSelected();
-            return Step.scroll(at ? parse(x) : 0, at ? parse(y) : 0, signed, at).withGap(gap.value());
+            Step step = unit.getSelectedIndex() == 1
+                    ? Step.scrollPoints(at ? parse(x) : 0, at ? parse(y) : 0, signed, at)
+                    : Step.scroll(at ? parse(x) : 0, at ? parse(y) : 0, signed, at);
+            return step.withGap(gap.value());
         }
     }
 

@@ -61,28 +61,73 @@ public final class Player {
         };
     }
 
-    /** Presses at the start, glides to the end in small moves so apps see a real drag, and releases. */
+    /**
+     * Presses at the start, holds briefly, nudges past the system's drag threshold, glides to the end
+     * in moves of a few points and hovers there before releasing. Apps that need to see a drag begin,
+     * or a drop target that reacts to the pointer resting over it, accept the drop this way.
+     */
     private boolean drag(Step step) {
         if (!pause(40)) return false;
         robot.mouseMove(step.x, step.y);
-        if (!pause(40)) return false;
+        if (!pause(80)) return false;
         int mask = mask(step.button);
+        boolean done = false;
         try {
             robot.mousePress(mask);
-            if (!pause(60)) return false;
-            int moves = 20;
-            for (int i = 1; i <= moves; i++) {
+            if (!pause(DRAG_HOLD_MS)) return false;
+            int[][] path = dragPath(step.x, step.y, step.x2, step.y2);
+            for (int[] point : path) {
                 if (stopped()) return false;
-                int x = step.x + (step.x2 - step.x) * i / moves;
-                int y = step.y + (step.y2 - step.y) * i / moves;
-                robot.mouseMove(x, y);
-                pause(15);
+                robot.mouseMove(point[0], point[1]);
+                if (!pause(DRAG_MOVE_MS)) return false;
             }
-            pause(60);
+            // Rest over the target so it registers the hover, then drop.
+            if (!pause(DRAG_HOVER_MS)) return false;
+            done = true;
         } finally {
             robot.mouseRelease(mask);
         }
-        return pause(40);
+        return done && pause(80);
+    }
+
+    private static final int DRAG_HOLD_MS = 150;
+    private static final int DRAG_MOVE_MS = 12;
+    private static final int DRAG_HOVER_MS = 200;
+
+    /**
+     * Points the drag passes through: two small nudges to start it, then steps of about 8 points with
+     * a gentle start and finish, ending one point short and then on the target itself.
+     */
+    static int[][] dragPath(int x, int y, int x2, int y2) {
+        double dx = x2 - x;
+        double dy = y2 - y;
+        double length = Math.hypot(dx, dy);
+        java.util.List<int[]> path = new java.util.ArrayList<>();
+        if (length < 1) {
+            path.add(new int[] {x2, y2});
+            return path.toArray(new int[0][]);
+        }
+        double ux = dx / length;
+        double uy = dy / length;
+        double sx = x;
+        double sy = y;
+        for (int nudge : new int[] {2, 5}) {
+            if (nudge * 2 >= length) break;
+            sx = x + ux * nudge;
+            sy = y + uy * nudge;
+            path.add(new int[] {(int) Math.round(sx), (int) Math.round(sy)});
+        }
+        double rest = Math.hypot(x2 - sx, y2 - sy);
+        int moves = (int) Math.max(12, Math.min(90, Math.ceil(rest / 8)));
+        for (int i = 1; i <= moves; i++) {
+            double t = (double) i / moves;
+            double eased = t * t * (3 - 2 * t);
+            path.add(new int[] {(int) Math.round(sx + (x2 - sx) * eased), (int) Math.round(sy + (y2 - sy) * eased)});
+        }
+        int[] last = path.get(path.size() - 1);
+        if (last[0] != x2 || last[1] != y2) path.add(new int[] {x2, y2});
+        path.add(path.size() - 1, new int[] {(int) Math.round(x2 - ux), (int) Math.round(y2 - uy)});
+        return path.toArray(new int[0][]);
     }
 
     private static int mask(int button) {
@@ -95,12 +140,17 @@ public final class Player {
 
     /** Pause between wheel notches. Steady pacing lets apps with smooth scrolling keep up, so each run lands in the same place. */
     private static final int NOTCH_MS = 30;
+    /** Largest slice of a point scroll and the pause between slices. */
+    private static final int POINT_SLICE = 20;
+    private static final int POINT_MS = 8;
     /** Wait after the last notch for smooth-scroll animations to finish before the next step. */
     private static final int SCROLL_SETTLE_MS = 220;
 
     /**
-     * Rolls the wheel one notch at a time at a steady pace, so the distance is the same on every run
-     * and Stop still reacts mid-way. Moving the pointer first gives the app time to see what is under it.
+     * On macOS a step measured in points is posted as exact point scrolling, in small even slices, so
+     * nothing is accelerated or rounded and every run lands in the same place. Otherwise the wheel
+     * rolls one notch at a time at a steady pace. Stop still reacts mid-way either way. Moving the
+     * pointer first gives the app time to see what is under it.
      * On macOS {@link Robot#mouseWheel} rolls up for positive values, the opposite of its documentation,
      * so the sign is flipped there.
      */
@@ -111,8 +161,17 @@ public final class Player {
             robot.mouseMove(step.x, step.y);
             if (!pause(80)) return false;
         }
-        int sign = (step.scroll < 0) == isMac() ? 1 : -1;
-        for (int left = Math.abs(step.scroll); left > 0; left--) {
+        if (step.pixels && MacScroll.available()) {
+            for (int part : MacScroll.slices(step.scroll, POINT_SLICE)) {
+                if (stopped()) return false;
+                MacScroll.post(part);
+                if (!pause(POINT_MS)) return false;
+            }
+            return pause(SCROLL_SETTLE_MS);
+        }
+        int lines = step.scrollLines();
+        int sign = (lines < 0) == isMac() ? 1 : -1;
+        for (int left = Math.abs(lines); left > 0; left--) {
             if (stopped()) return false;
             robot.mouseWheel(sign);
             if (left > 1 && !pause(NOTCH_MS)) return false;

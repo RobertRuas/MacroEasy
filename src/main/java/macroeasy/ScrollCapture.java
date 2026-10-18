@@ -71,7 +71,7 @@ final class ScrollCapture {
         };
         recorder[0] = new Recorder(out, () -> bounds[0]);
 
-        JLabel text = new JLabel("Gire a roda do mouse onde quer rolar. Pare 1 segundo para terminar.");
+        JLabel text = new JLabel("Role com a roda do mouse ou o trackpad onde quer rolar. Pare 1 segundo para terminar.");
         text.setFont(text.getFont().deriveFont(Font.BOLD, 12f));
         JLabel hint = new JLabel("Esc cancela.");
         hint.setFont(hint.getFont().deriveFont(11f));
@@ -139,11 +139,12 @@ final class ScrollCapture {
         }
         synchronized (seen) {
             if (cancelled[0] || seen.isEmpty()) return null;
-            int total = 0;
-            for (Step step : seen) total += step.scroll;
-            if (total == 0) return null;
             Step first = seen.get(0);
-            return Step.scroll(first.x, first.y, total, true);
+            int total = 0;
+            for (Step step : seen) total += first.pixels ? step.scroll : step.scrollLines();
+            if (total == 0) return null;
+            return first.pixels ? Step.scrollPoints(first.x, first.y, total, true)
+                    : Step.scroll(first.x, first.y, total, true);
         }
     }
 

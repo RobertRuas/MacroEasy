@@ -16,8 +16,10 @@ public final class Step {
     public final boolean paste;
     public final int[] keys;
     public final int waitMs;
-    /** Wheel lines for SCROLL. Positive rolls down, negative rolls up. */
+    /** How far SCROLL rolls, in wheel lines or, when {@link #pixels}, in screen points. Positive rolls down. */
     public final int scroll;
+    /** Whether {@link #scroll} counts points instead of wheel lines. Points replay exactly on macOS. */
+    public final boolean pixels;
     /** Whether SCROLL moves the pointer to x, y before rolling. */
     public final boolean move;
     /** Where DRAG releases the button. */
@@ -29,12 +31,12 @@ public final class Step {
     private Step(Kind kind, int x, int y, int button, int clicks,
                  String text, boolean paste, int[] keys, int waitMs,
                  int scroll, boolean move, int gapMs) {
-        this(kind, x, y, button, clicks, text, paste, keys, waitMs, scroll, move, 0, 0, gapMs);
+        this(kind, x, y, button, clicks, text, paste, keys, waitMs, scroll, false, move, 0, 0, gapMs);
     }
 
     private Step(Kind kind, int x, int y, int button, int clicks,
                  String text, boolean paste, int[] keys, int waitMs,
-                 int scroll, boolean move, int x2, int y2, int gapMs) {
+                 int scroll, boolean pixels, boolean move, int x2, int y2, int gapMs) {
         this.kind = kind;
         this.x = x;
         this.y = y;
@@ -45,6 +47,7 @@ public final class Step {
         this.keys = keys == null ? new int[0] : keys;
         this.waitMs = waitMs;
         this.scroll = scroll;
+        this.pixels = pixels;
         this.move = move;
         this.x2 = x2;
         this.y2 = y2;
@@ -78,13 +81,24 @@ public final class Step {
         return new Step(Kind.SCROLL, x, y, 1, 1, "", true, null, 0, lines, move, -1);
     }
 
+    /** Roll by an exact distance in screen points. {@code points} > 0 rolls down. */
+    public static Step scrollPoints(int x, int y, int points, boolean move) {
+        return new Step(Kind.SCROLL, x, y, 1, 1, "", true, null, 0, points, true, move, 0, 0, -1);
+    }
+
+    /** Wheel lines for systems that only roll by lines. About 40 points make one notch. */
+    public int scrollLines() {
+        if (!pixels || scroll == 0) return scroll;
+        return (int) Math.signum(scroll) * Math.max(1, Math.round(Math.abs(scroll) / 40f));
+    }
+
     /** Press at x, y, move to x2, y2 and release. */
     public static Step drag(int x, int y, int x2, int y2, int button) {
-        return new Step(Kind.DRAG, x, y, button, 1, "", true, null, 0, 0, false, x2, y2, -1);
+        return new Step(Kind.DRAG, x, y, button, 1, "", true, null, 0, 0, false, false, x2, y2, -1);
     }
 
     public Step withGap(int gapMs) {
-        return new Step(kind, x, y, button, clicks, text, paste, keys, waitMs, scroll, move, x2, y2, gapMs);
+        return new Step(kind, x, y, button, clicks, text, paste, keys, waitMs, scroll, pixels, move, x2, y2, gapMs);
     }
 
     public String appName() {
@@ -116,7 +130,7 @@ public final class Step {
     }
 
     private String scrollLabel() {
-        String label = "Rolar " + (scroll < 0 ? "para cima" : "para baixo") + "  " + Math.abs(scroll);
+        String label = "Rolar " + (scroll < 0 ? "para cima" : "para baixo") + "  " + Math.abs(scroll) + (pixels ? " px" : "");
         return move ? label + "  em " + x + ", " + y : label;
     }
 
@@ -145,7 +159,7 @@ public final class Step {
             case KEYS -> "KEYS " + join(keys);
             case WAIT -> "WAIT " + waitMs;
             case FOCUS -> "FOCUS " + escape(text);
-            case SCROLL -> "SCROLL " + scroll + " " + x + " " + y + " " + (move ? 1 : 0);
+            case SCROLL -> "SCROLL " + scroll + " " + x + " " + y + " " + (move ? 1 : 0) + (pixels ? " P" : "");
             case DRAG -> "DRAG " + x + " " + y + " " + x2 + " " + y2 + " " + button;
         };
         return body + "|g" + gapMs;
@@ -169,9 +183,11 @@ public final class Step {
                 case "KEYS" -> keys(parseKeys(p[1]));
                 case "WAIT" -> wait(Integer.parseInt(p[1]));
                 case "FOCUS" -> focusFrom(unescape(line.substring(6)));
-                case "SCROLL" -> scroll(
-                        Integer.parseInt(p[2]), Integer.parseInt(p[3]),
-                        Integer.parseInt(p[1]), !"0".equals(p[4]));
+                case "SCROLL" -> p.length > 5 && "P".equals(p[5])
+                        ? scrollPoints(Integer.parseInt(p[2]), Integer.parseInt(p[3]),
+                                Integer.parseInt(p[1]), !"0".equals(p[4]))
+                        : scroll(Integer.parseInt(p[2]), Integer.parseInt(p[3]),
+                                Integer.parseInt(p[1]), !"0".equals(p[4]));
                 case "DRAG" -> drag(
                         Integer.parseInt(p[1]), Integer.parseInt(p[2]),
                         Integer.parseInt(p[3]), Integer.parseInt(p[4]), Integer.parseInt(p[5]));

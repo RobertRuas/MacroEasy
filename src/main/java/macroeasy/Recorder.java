@@ -46,6 +46,11 @@ final class Recorder {
      * keeps the whole distance.
      */
     private static final int FIELD_SCROLL_FIXED = 93;
+    /**
+     * kCGScrollWheelEventPointDeltaAxis1: the distance the content actually moved, in screen points,
+     * acceleration and trackpad momentum included. Replaying these points lands in the same place.
+     */
+    private static final int FIELD_SCROLL_POINTS = 96;
     /** Wheel events closer than this, in the same direction, merge into one step. */
     private static final long SCROLL_MERGE_MS = 700;
     private static final long COMMAND = 0x100000;
@@ -202,7 +207,9 @@ final class Recorder {
         if (type == TYPE_SCROLL) {
             double fine = (double) doubleField.invokeExact(event, FIELD_SCROLL_FIXED);
             if (fine == 0) fine = (long) field.invokeExact(event, FIELD_SCROLL_LINES);
-            scroll(x, y, fine);
+            long points = (long) field.invokeExact(event, FIELD_SCROLL_POINTS);
+            if (fine == 0 && points != 0) fine = points / 10.0;
+            scroll(x, y, fine, points);
             return;
         }
         int button = switch (type) {
@@ -252,9 +259,10 @@ final class Recorder {
 
     /**
      * Merges wheel movement into one step per direction; a pause or a turn starts a new one.
-     * {@code delta} is in lines, with fractions, positive when rolling up.
+     * {@code delta} is in lines, with fractions, and {@code points} the same movement in screen points;
+     * both are positive when rolling up.
      */
-    private void scroll(int x, int y, double delta) {
+    private void scroll(int x, int y, double delta, long points) {
         if (delta == 0) return;
         double lines = -delta;
         if (!scrolling.continues(lines, millisSinceLast(), SCROLL_MERGE_MS)) {
@@ -264,7 +272,7 @@ final class Recorder {
         }
         lastNs = System.nanoTime();
         lastActionNs = lastNs;
-        Step step = scrolling.add(lines);
+        Step step = scrolling.add(lines, -points);
         if (step == null) return;
         if (scrolling.shown) out.replaceLast(step);
         else out.add(step);

@@ -2,7 +2,7 @@
 
 Aplicação de macros por passos, em Java. No macOS ela grava, executa e traz janelas à frente. No Windows e no Linux o mesmo programa executa cliques, arrastos, texto, atalhos, rolagem e esperas.
 
-Versão 1.2. Desenvolvedor: Robert.
+Versão 1.3. Desenvolvedor: Robert.
 
 ## Onde roda
 
@@ -44,9 +44,10 @@ O editor abre sem as permissões do macOS. A gravação avisa que está disponí
 ## O que dá para fazer
 
 - Montar a macro na mão ou gravar cliques, arrastos, texto, atalhos e rolagem da roda do mouse. Na gravação, Enter, Tab, Esc, setas, teclas F e combinações com ⌘, Ctrl ou ⌥ viram passos de atalho; só os caracteres viram texto. Os atalhos seguem o layout do teclado (AZERTY, Dvorak, ABNT2).
-- Arrastar: segurar o botão do mouse num ponto e soltar em outro.
+- Clique e arrasto vão direto para a tela: escolha Clique e clique onde quer clicar; escolha Arrastar e soltar, clique no ponto inicial e logo depois no ponto final. A janela do MacroEasy some enquanto você marca. Para mudar o botão ou o intervalo, use o ícone de editar.
+- Arrastar: segura o botão no ponto inicial, começa devagar, desliza até o final e espera um instante antes de soltar, para que listas, pastas e páginas reconheçam o arrasto.
 - Desfazer e refazer qualquer mudança nos passos, inclusive uma gravação inteira.
-- Rolar a roda do mouse para cima ou para baixo, no lugar do ponteiro ou num ponto marcado. O botão Gravar rolagem preenche a direção, as linhas e a posição com uma rolagem real.
+- Rolar para cima ou para baixo, no lugar do ponteiro ou num ponto marcado. No macOS a rolagem gravada (roda ou trackpad) guarda a distância exata em pixels e repete exatamente essa distância. Também dá para informar em linhas. O botão Gravar rolagem preenche a direção, a distância e a posição com uma rolagem real.
 - Definir um intervalo único entre as ações e, se quiser, um intervalo próprio em um passo.
 - Repetir a lista quantas vezes precisar e esperar um atraso inicial para focar o aplicativo alvo.
 - Guardar as macros na barra lateral. Elas são salvas sozinhas em `~/Documents/MacroEasy`.
@@ -88,7 +89,7 @@ Para gerar o `MacroEasy.app`:
 ```bash
 jpackage --type app-image --name MacroEasy --dest dist \
   --input target --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
-  --app-version 1.2 \
+  --app-version 1.3 \
   --java-options '--enable-native-access=ALL-UNNAMED'
 ```
 
@@ -108,7 +109,7 @@ No `MacroEasy.app` (macOS), se a tag for maior que a versão instalada, a janela
 
 No `MacroEasy.jar` (Windows, Linux), o app nunca fica bloqueado. Quando há versão nova, ele avisa uma vez e oferece abrir a página da release.
 
-A tag da release deve ser `v1.2.0` ou `1.2.0`. O zip precisa conter `MacroEasy.app`.
+A tag da release deve ser `v1.3.0` ou `1.3.0`. O zip precisa conter `MacroEasy.app`.
 
 ## Publicar uma versão
 

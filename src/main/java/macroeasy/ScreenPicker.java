@@ -23,6 +23,28 @@ public final class ScreenPicker {
     private ScreenPicker() {}
 
     public static Point pick() {
+        return pick(null, null, null);
+    }
+
+    /**
+     * Hides {@code hide} (the app's own windows) while the user aims, so what is behind them can be
+     * clicked. {@code hint} names what is being marked; {@code from}, when set, is drawn as the start
+     * of a drag with a line to the pointer.
+     */
+    public static Point pick(java.awt.Window hide, String hint, Point from) {
+        boolean shown = hide != null && hide.isVisible();
+        if (shown) hide.setVisible(false);
+        try {
+            return show(hint, from);
+        } finally {
+            if (shown) {
+                hide.setVisible(true);
+                hide.toFront();
+            }
+        }
+    }
+
+    private static Point show(String hint, Point from) {
         Rectangle all = new Rectangle();
         GraphicsEnvironment env = GraphicsEnvironment.getLocalGraphicsEnvironment();
         for (GraphicsDevice device : env.getScreenDevices()) {
@@ -49,8 +71,21 @@ public final class ScreenPicker {
                 g.setColor(Color.WHITE);
                 g.drawLine(x, 0, x, getHeight());
                 g.drawLine(0, y, getWidth(), y);
+                if (from != null) {
+                    int fx = from.x - bounds.x;
+                    int fy = from.y - bounds.y;
+                    java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+                    g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                            java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setStroke(new java.awt.BasicStroke(2f));
+                    g2.setColor(new Color(255, 200, 40));
+                    g2.drawLine(fx, fy, x, y);
+                    g2.fillOval(fx - 6, fy - 6, 12, 12);
+                    g2.dispose();
+                }
                 g.setFont(getFont().deriveFont(Font.BOLD, 12f));
-                String label = cursor[0].x + ", " + cursor[0].y + "    clique marca  ·  Esc cancela";
+                String what = hint == null ? "" : hint + "    ";
+                String label = what + cursor[0].x + ", " + cursor[0].y + "    clique marca  ·  Esc cancela";
                 int width = g.getFontMetrics().stringWidth(label);
                 int tx = Math.min(Math.max(8, x + 16), Math.max(8, getWidth() - width - 16));
                 int ty = Math.min(Math.max(24, y - 12), Math.max(24, getHeight() - 12));
