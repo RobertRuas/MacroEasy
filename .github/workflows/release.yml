@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes the version in pom.xml as a release, when it has none yet, and attaches
-# MacroEasy.zip with the macOS app (Java included), replacing any zip already there.
+# MacroEasy.zip with the macOS app (Java included), replacing any zip and notes already there.
 # Run by hand (Actions -> Release -> Run workflow); the notes come from release-notes/v<version>.md.
 on:
   workflow_dispatch:
@@ -96,3 +96,5 @@ jobs:
         run: |
           ditto -c -k --keepParent dist/MacroEasy.app MacroEasy.zip
           gh release upload "$TAG" MacroEasy.zip --clobber
+          notes="release-notes/${TAG}.md"
+          [ -f "$notes" ] && gh release edit "$TAG" --notes-file "$notes"
