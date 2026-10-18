@@ -74,6 +74,15 @@ final class Icons {
         });
     }
 
+    static ImageIcon drag() {
+        return icon(g -> {
+            g.drawOval(2, 2, 4, 4);
+            g.drawLine(6, 6, 13, 13);
+            g.drawLine(13, 13, 13, 9);
+            g.drawLine(13, 13, 9, 13);
+        });
+    }
+
     static ImageIcon edit() {
         return icon(g -> g.drawLine(3, 13, 13, 3));
     }
@@ -157,6 +166,7 @@ final class Icons {
             case WAIT -> clock();
             case FOCUS -> window();
             case SCROLL -> scroll();
+            case DRAG -> drag();
         };
     }
 

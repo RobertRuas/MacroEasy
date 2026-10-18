@@ -26,7 +26,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.ParseException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.prefs.Preferences;
@@ -74,6 +73,9 @@ public final class MacroEasy extends JFrame {
     private static final KeyStroke KEY_WAIT = key(KeyEvent.VK_4, SHORTCUT);
     private static final KeyStroke KEY_WINDOW = key(KeyEvent.VK_5, SHORTCUT);
     private static final KeyStroke KEY_SCROLL = key(KeyEvent.VK_6, SHORTCUT);
+    private static final KeyStroke KEY_DRAG = key(KeyEvent.VK_7, SHORTCUT);
+    private static final KeyStroke KEY_UNDO = key(KeyEvent.VK_Z, SHORTCUT);
+    private static final KeyStroke KEY_REDO = key(KeyEvent.VK_Z, SHORTCUT | KeyEvent.SHIFT_DOWN_MASK);
     private static final KeyStroke KEY_EDIT = key(KeyEvent.VK_E, SHORTCUT);
     private static final KeyStroke KEY_DUPLICATE = key(KeyEvent.VK_D, SHORTCUT);
     private static final KeyStroke KEY_DELETE = key(KeyEvent.VK_BACK_SPACE, SHORTCUT);
@@ -92,6 +94,9 @@ public final class MacroEasy extends JFrame {
     private final JSpinner delay = new JSpinner(new SpinnerNumberModel(2000, 0, 600_000, 100));
     private final JSpinner interval = new JSpinner(new SpinnerNumberModel(200, 0, 600_000, 50));
     private final AtomicBoolean stopFlag = new AtomicBoolean();
+    private final History history = new History();
+    private JMenuItem undoItem;
+    private JMenuItem redoItem;
 
     private final DefaultListModel<Path> macros = new DefaultListModel<>();
     private final JList<Path> macroList = new JList<>(macros);
@@ -119,15 +124,47 @@ public final class MacroEasy extends JFrame {
         bindKeys();
         loadSession();
         pack();
-        setMinimumSize(new Dimension(1180, 480));
-        setSize(1260, 560);
-        setLocationRelativeTo(null);
+        setMinimumSize(new Dimension(MIN_WIDTH, MIN_HEIGHT));
+        placeWindow();
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
                 quit();
             }
         });
+    }
+
+    private static final int MIN_WIDTH = WindowSize.MIN_WIDTH;
+    private static final int MIN_HEIGHT = WindowSize.MIN_HEIGHT;
+
+    /** Opens where it was last closed, or at a size that leaves room for other windows on this screen. */
+    private void placeWindow() {
+        Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        Rectangle saved = new Rectangle(prefs.getInt("winX", 0), prefs.getInt("winY", 0),
+                prefs.getInt("winW", 0), prefs.getInt("winH", 0));
+        if (saved.width >= MIN_WIDTH && saved.height >= MIN_HEIGHT && onScreen(saved)) {
+            setBounds(saved);
+            return;
+        }
+        setSize(WindowSize.defaultSize(screen.width, screen.height));
+        setLocationRelativeTo(null);
+    }
+
+    private static boolean onScreen(Rectangle bounds) {
+        for (var device : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+            Rectangle visible = device.getDefaultConfiguration().getBounds().intersection(bounds);
+            if (visible.width >= 120 && visible.height >= 80) return true;
+        }
+        return false;
+    }
+
+    private void rememberWindow() {
+        if ((getExtendedState() & (Frame.ICONIFIED | Frame.MAXIMIZED_BOTH)) != 0) return;
+        Rectangle bounds = getBounds();
+        prefs.putInt("winX", bounds.x);
+        prefs.putInt("winY", bounds.y);
+        prefs.putInt("winW", bounds.width);
+        prefs.putInt("winH", bounds.height);
     }
 
     public static void main(String[] args) {
@@ -204,27 +241,28 @@ public final class MacroEasy extends JFrame {
         JButton window = button("Janela", Icons.window(), KEY_WINDOW);
         JButton scrollStep = button("Rolagem", Icons.scroll(), KEY_SCROLL);
         scrollStep.setToolTipText("Gira a roda do mouse para cima ou para baixo");
+        JButton dragStep = button("Arrastar", Icons.drag(), KEY_DRAG);
+        dragStep.setToolTipText("Segura o botão do mouse num ponto e solta em outro");
         click.addActionListener(e -> newClick());
         text.addActionListener(e -> newText());
         keys.addActionListener(e -> newKeys());
         wait.addActionListener(e -> newWait());
         window.addActionListener(e -> newWindow());
         scrollStep.addActionListener(e -> newScroll());
+        dragStep.addActionListener(e -> newDrag());
 
         JButton open = button("Abrir", Icons.folder(), KEY_OPEN);
         JButton save = button("Salvar", Icons.save(), KEY_SAVE);
         open.addActionListener(e -> open());
         save.addActionListener(e -> save());
 
-        JPanel top = new JPanel(new BorderLayout(12, 0));
-        top.setOpaque(false);
-        top.add(row(run, record, stop), BorderLayout.WEST);
-        top.add(row(field("Vezes", repeats), field("Atraso", delay), field("Intervalo", interval)), BorderLayout.CENTER);
-        top.add(row(open, save), BorderLayout.EAST);
+        JPanel top = row(run, record, stop,
+                field("Vezes", repeats), field("Atraso", delay), field("Intervalo", interval),
+                open, save);
 
         JPanel tools = new JPanel();
         tools.setLayout(new javax.swing.BoxLayout(tools, javax.swing.BoxLayout.Y_AXIS));
-        JPanel createRow = row(click, text, keys, wait, window, scrollStep);
+        JPanel createRow = row(click, text, keys, wait, window, scrollStep, dragStep);
         JPanel changeRow = row(edit, duplicate, delete, up, down);
         createRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         changeRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -293,7 +331,7 @@ public final class MacroEasy extends JFrame {
         removeMacro.addActionListener(e -> deleteMacro());
         JScrollPane saved = new JScrollPane(macroList);
         saved.setBorder(BorderFactory.createLineBorder(line != null ? line : new Color(180, 180, 180)));
-        saved.setPreferredSize(new Dimension(200, 200));
+        saved.setPreferredSize(new Dimension(170, 200));
         JPanel south = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         south.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
         south.add(create);
@@ -307,6 +345,23 @@ public final class MacroEasy extends JFrame {
 
     private JMenuBar menu() {
         JMenuBar bar = new JMenuBar();
+        JMenu editMenu = new JMenu("Editar");
+        undoItem = new JMenuItem("Desfazer");
+        undoItem.setAccelerator(KEY_UNDO);
+        undoItem.addActionListener(e -> undo());
+        redoItem = new JMenuItem("Refazer");
+        redoItem.setAccelerator(KEY_REDO);
+        redoItem.addActionListener(e -> redo());
+        editMenu.add(undoItem);
+        editMenu.add(redoItem);
+        bar.add(editMenu);
+        JMenu recordMenu = new JMenu("Gravação");
+        javax.swing.JCheckBoxMenuItem timing = new javax.swing.JCheckBoxMenuItem("Gravar as pausas reais");
+        timing.setToolTipText("Cada passo gravado guarda o tempo que passou desde a ação anterior");
+        timing.setSelected(prefs.getBoolean("recordTiming", false));
+        timing.addActionListener(e -> prefs.putBoolean("recordTiming", timing.isSelected()));
+        recordMenu.add(timing);
+        bar.add(recordMenu);
         JMenu help = new JMenu("Ajuda");
         JMenuItem about = new JMenuItem("Sobre o MacroEasy");
         about.addActionListener(e -> About.show(this));
@@ -328,6 +383,8 @@ public final class MacroEasy extends JFrame {
         bind("newWait", KEY_WAIT, this::newWait);
         bind("newWindow", KEY_WINDOW, this::newWindow);
         bind("newScroll", KEY_SCROLL, this::newScroll);
+        bind("newDrag", KEY_DRAG, this::newDrag);
+        if (!MAC) bind("redoY", key(KeyEvent.VK_Y, SHORTCUT), this::redo);
         bind("edit", KEY_EDIT, this::editSelected);
         bind("dup", KEY_DUPLICATE, this::duplicateSelected);
         bind("deleteStep", KEY_DELETE, this::deleteSelected);
@@ -365,6 +422,34 @@ public final class MacroEasy extends JFrame {
 
     private void newScroll() {
         if (!busy()) insert(Editor.scroll(this, null));
+    }
+
+    private void newDrag() {
+        if (!busy()) insert(Editor.drag(this, null));
+    }
+
+    /** Saves the list as it is now so the next change can be undone. */
+    private void remember() {
+        history.record(snapshot());
+    }
+
+    private void undo() {
+        if (busy()) return;
+        restore(history.undo(snapshot()));
+    }
+
+    private void redo() {
+        if (busy()) return;
+        restore(history.redo(snapshot()));
+    }
+
+    private void restore(List<Step> steps) {
+        if (steps == null) return;
+        int selected = list.getSelectedIndex();
+        model.clear();
+        for (Step step : steps) model.addElement(step);
+        if (!model.isEmpty()) list.setSelectedIndex(Math.max(0, Math.min(selected, model.getSize() - 1)));
+        changed();
     }
 
     private void bind(String name, KeyStroke stroke, Runnable action) {
@@ -410,8 +495,11 @@ public final class MacroEasy extends JFrame {
                             "Passo " + (index + 1) + " de " + steps.size() + "  ·  vez " + round + " de " + times)))) {
                 end = "Interrompido";
             }
-        } catch (Exception ex) {
+        } catch (java.awt.AWTException | SecurityException ex) {
             end = "permission";
+        } catch (RuntimeException ex) {
+            String reason = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+            end = "Erro durante a execução: " + reason;
         } finally {
             String message = end;
             SwingUtilities.invokeLater(() -> finish(message));
@@ -424,12 +512,17 @@ public final class MacroEasy extends JFrame {
         if (!isDisplayable()) return;
         setExtendedState(Frame.NORMAL);
         if ("permission".equals(message)) {
-            JOptionPane.showMessageDialog(this,
-                    "O sistema bloqueou o controle do mouse e do teclado.\n"
+            JOptionPane.showMessageDialog(this, MAC
+                            ? "O sistema bloqueou o controle do mouse e do teclado.\n"
                             + "Abra Ajustes do Sistema → Privacidade e Segurança → Acessibilidade\n"
-                            + "e permita o Java, o Terminal ou o MacroEasy.",
+                            + "e permita o Java, o Terminal ou o MacroEasy."
+                            : "Não foi possível controlar o mouse e o teclado nesta sessão.\n"
+                            + "No Linux, a sessão precisa ser X11 (Wayland bloqueia o controle).",
                     "MacroEasy", JOptionPane.WARNING_MESSAGE);
-            setStatus("Sem permissão de acessibilidade.");
+            setStatus(MAC ? "Sem permissão de acessibilidade." : "Sem controle do mouse e do teclado.");
+        } else if (message.startsWith("Erro")) {
+            JOptionPane.showMessageDialog(this, message, "MacroEasy", JOptionPane.WARNING_MESSAGE);
+            setStatus(message);
         } else {
             setStatus(message);
         }
@@ -439,6 +532,7 @@ public final class MacroEasy extends JFrame {
 
     private void insert(Step step) {
         if (step == null || running) return;
+        remember();
         int selected = list.getSelectedIndex();
         int index = selected < 0 ? model.getSize() : selected + 1;
         model.add(index, step);
@@ -458,8 +552,10 @@ public final class MacroEasy extends JFrame {
             case WAIT -> Editor.wait(this, current);
             case FOCUS -> Editor.focus(this, current);
             case SCROLL -> Editor.scroll(this, current);
+            case DRAG -> Editor.drag(this, current);
         };
         if (next == null) return;
+        remember();
         model.set(index, next);
         list.setSelectedIndex(index);
         changed();
@@ -470,6 +566,7 @@ public final class MacroEasy extends JFrame {
         if (index < 0 || running) return;
         Step copy = Step.parse(model.get(index).encode());
         if (copy == null) return;
+        remember();
         model.add(index + 1, copy);
         list.setSelectedIndex(index + 1);
         list.ensureIndexIsVisible(index + 1);
@@ -479,6 +576,7 @@ public final class MacroEasy extends JFrame {
     private void deleteSelected() {
         int index = list.getSelectedIndex();
         if (index < 0 || running) return;
+        remember();
         model.remove(index);
         if (!model.isEmpty()) list.setSelectedIndex(Math.min(index, model.getSize() - 1));
         changed();
@@ -488,6 +586,7 @@ public final class MacroEasy extends JFrame {
         int index = list.getSelectedIndex();
         int target = index + delta;
         if (index < 0 || target < 0 || target >= model.getSize() || running) return;
+        remember();
         Step step = model.remove(index);
         model.add(target, step);
         list.setSelectedIndex(target);
@@ -500,6 +599,7 @@ public final class MacroEasy extends JFrame {
         JFileChooser chooser = chooser();
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
         Path path = chooser.getSelectedFile().toPath();
+        rememberDirectory(path);
         try {
             Path stored = importMacro(path);
             refreshMacros();
@@ -538,6 +638,7 @@ public final class MacroEasy extends JFrame {
         if (running) stopFlag.set(true);
         if (recording && recorder != null) recorder.stop();
         persist();
+        rememberWindow();
         hideHud();
         dispose();
     }
@@ -581,19 +682,14 @@ public final class MacroEasy extends JFrame {
     }
 
     private static Path library() {
-        return Path.of(System.getProperty("user.home"), "Documents", "MacroEasy");
+        return Library.root();
     }
 
     private void refreshMacros() {
         loadingLibrary = true;
         try {
             macros.clear();
-            Files.createDirectories(library());
-            try (var files = Files.list(library())) {
-                files.filter(path -> path.getFileName().toString().toLowerCase().endsWith(".macro"))
-                        .sorted(Comparator.comparing(path -> path.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
-                        .forEach(macros::addElement);
-            }
+            Library.list(library()).forEach(macros::addElement);
             selectMacro(file);
         } catch (IOException ex) {
             setStatus("Não foi possível ler as macros em Documentos.");
@@ -617,6 +713,7 @@ public final class MacroEasy extends JFrame {
         try {
             List<Step> steps = MacroFile.load(path);
             file = path;
+            history.clear();
             model.clear();
             for (Step step : steps) model.addElement(step);
             if (!model.isEmpty()) list.setSelectedIndex(0);
@@ -647,6 +744,7 @@ public final class MacroEasy extends JFrame {
         try {
             MacroFile.save(path, List.of());
             file = path;
+            history.clear();
             model.clear();
             dirty = false;
             refreshMacros();
@@ -670,6 +768,7 @@ public final class MacroEasy extends JFrame {
         try {
             Files.deleteIfExists(file);
             file = null;
+            history.clear();
             refreshMacros();
             if (macros.isEmpty()) {
                 model.clear();
@@ -686,25 +785,11 @@ public final class MacroEasy extends JFrame {
     }
 
     private Path importMacro(Path path) throws IOException {
-        Files.createDirectories(library());
-        if (path.startsWith(library())) return path;
-        String name = path.getFileName().toString();
-        if (!name.toLowerCase().endsWith(".macro")) name = name + ".macro";
-        Path dest = library().resolve(name);
-        int copy = 2;
-        while (Files.exists(dest)) {
-            String base = name.toLowerCase().endsWith(".macro") ? name.substring(0, name.length() - 6) : name;
-            dest = library().resolve(base + " " + copy + ".macro");
-            copy++;
-        }
-        Files.copy(path, dest);
-        return dest;
+        return Library.importInto(library(), path);
     }
 
     private String nextName() {
-        int number = 1;
-        while (Files.exists(library().resolve("Macro " + number + ".macro"))) number++;
-        return "Macro " + number;
+        return Library.nextName(library());
     }
 
     private boolean persist() {
@@ -760,15 +845,17 @@ public final class MacroEasy extends JFrame {
         list.setEnabled(idle);
         macroList.setEnabled(idle);
         if (removeMacro != null) removeMacro.setEnabled(idle && file != null);
+        if (undoItem != null) undoItem.setEnabled(idle && history.canUndo());
+        if (redoItem != null) redoItem.setEnabled(idle && history.canRedo());
     }
 
     private void idleStatus() {
         int count = model.getSize();
         if (count == 0) {
-            setStatus("Nenhum passo. Adicione um clique, texto, atalho, espera, janela ou rolagem.");
+            setStatus("Nenhum passo. Adicione um clique, texto, atalho, espera, janela, rolagem ou arrasto.");
         } else {
             setStatus(count + (count == 1 ? " passo. " : " passos. ")
-                    + "Para interromper: Parar, ou o mouse no canto superior esquerdo.");
+                    + "Para interromper: Esc, Parar, ou o mouse no canto superior esquerdo.");
         }
     }
 
@@ -823,10 +910,14 @@ public final class MacroEasy extends JFrame {
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
+        remember();
         recording = true;
         stopFlag.set(false);
         updateEnabled();
-        setStatus("Gravando cliques, teclas e rolagem. O intervalo entre eles fica no campo Intervalo.");
+        boolean timing = prefs.getBoolean("recordTiming", false);
+        setStatus(timing
+                ? "Gravando cliques, arrastos, teclas e rolagem, com as pausas reais."
+                : "Gravando cliques, arrastos, teclas e rolagem. O intervalo entre eles fica no campo Intervalo.");
         recorder = new Recorder(new Recorder.Out() {
             @Override
             public void add(Step step) {
@@ -837,7 +928,7 @@ public final class MacroEasy extends JFrame {
             public void replaceLast(Step step) {
                 SwingUtilities.invokeLater(() -> appendRecorded(step, true));
             }
-        }, () -> hudHit);
+        }, () -> hudHit, timing);
         showHud("Parar gravação");
         setExtendedState(Frame.ICONIFIED);
         Thread worker = new Thread(() -> {
@@ -853,11 +944,17 @@ public final class MacroEasy extends JFrame {
         worker.start();
     }
 
-    /** With {@code replaceLast}, the most recent step of the same kind is updated: a double click, or a longer scroll. */
+    /**
+     * With {@code replaceLast}, the most recent step of the same kind is updated: a double click,
+     * or a longer scroll. A drag replaces the click recorded when the button went down.
+     * The replaced step keeps its pause.
+     */
     private void appendRecorded(Step step, boolean replaceLast) {
         if (replaceLast) {
+            Step.Kind kind = step.kind == Step.Kind.DRAG ? Step.Kind.CLICK : step.kind;
             for (int i = model.getSize() - 1; i >= 0 && i >= model.getSize() - 3; i--) {
-                if (model.get(i).kind == step.kind) {
+                if (model.get(i).kind == kind) {
+                    if (step.gapMs < 0) step = step.withGap(model.get(i).gapMs);
                     model.set(i, step);
                     list.setSelectedIndex(i);
                     list.ensureIndexIsVisible(i);
@@ -916,7 +1013,7 @@ public final class MacroEasy extends JFrame {
     }
 
     private static Path sessionFile() {
-        return Path.of(System.getProperty("user.home"), ".macroeasy", "session.macro");
+        return Library.sessionFile();
     }
 
     private static int number(JSpinner spinner, int fallback) {
@@ -929,7 +1026,7 @@ public final class MacroEasy extends JFrame {
     }
 
     private static JPanel row(Component... parts) {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel panel = new JPanel(new WrapLayout(FlowLayout.LEFT, 6, 3));
         panel.setOpaque(false);
         for (Component part : parts) panel.add(part);
         return panel;

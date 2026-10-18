@@ -5,7 +5,7 @@ import java.util.Arrays;
 
 /** One macro action. Fields unused by a kind stay at their defaults. */
 public final class Step {
-    public enum Kind { CLICK, TEXT, KEYS, WAIT, FOCUS, SCROLL }
+    public enum Kind { CLICK, TEXT, KEYS, WAIT, FOCUS, SCROLL, DRAG }
 
     public final Kind kind;
     public final int x;
@@ -20,12 +20,21 @@ public final class Step {
     public final int scroll;
     /** Whether SCROLL moves the pointer to x, y before rolling. */
     public final boolean move;
+    /** Where DRAG releases the button. */
+    public final int x2;
+    public final int y2;
     /** Pause before this step, in milliseconds. Negative means the shared interval. */
     public final int gapMs;
 
     private Step(Kind kind, int x, int y, int button, int clicks,
                  String text, boolean paste, int[] keys, int waitMs,
                  int scroll, boolean move, int gapMs) {
+        this(kind, x, y, button, clicks, text, paste, keys, waitMs, scroll, move, 0, 0, gapMs);
+    }
+
+    private Step(Kind kind, int x, int y, int button, int clicks,
+                 String text, boolean paste, int[] keys, int waitMs,
+                 int scroll, boolean move, int x2, int y2, int gapMs) {
         this.kind = kind;
         this.x = x;
         this.y = y;
@@ -37,6 +46,8 @@ public final class Step {
         this.waitMs = waitMs;
         this.scroll = scroll;
         this.move = move;
+        this.x2 = x2;
+        this.y2 = y2;
         this.gapMs = gapMs;
     }
 
@@ -67,8 +78,13 @@ public final class Step {
         return new Step(Kind.SCROLL, x, y, 1, 1, "", true, null, 0, lines, move, -1);
     }
 
+    /** Press at x, y, move to x2, y2 and release. */
+    public static Step drag(int x, int y, int x2, int y2, int button) {
+        return new Step(Kind.DRAG, x, y, button, 1, "", true, null, 0, 0, false, x2, y2, -1);
+    }
+
     public Step withGap(int gapMs) {
-        return new Step(kind, x, y, button, clicks, text, paste, keys, waitMs, scroll, move, gapMs);
+        return new Step(kind, x, y, button, clicks, text, paste, keys, waitMs, scroll, move, x2, y2, gapMs);
     }
 
     public String appName() {
@@ -89,6 +105,7 @@ public final class Step {
             case WAIT -> "Esperar  " + waitMs + " ms";
             case FOCUS -> focusLabel();
             case SCROLL -> scrollLabel();
+            case DRAG -> "Arrastar " + buttonName() + "  " + x + ", " + y + "  →  " + x2 + ", " + y2;
         };
         return gapMs >= 0 && kind != Kind.WAIT ? label + "    " + gapMs + " ms" : label;
     }
@@ -104,13 +121,16 @@ public final class Step {
     }
 
     private String clickLabel() {
-        String which = switch (button) {
+        String times = clicks > 1 ? "duplo " : "";
+        return "Clique " + times + buttonName() + "  " + x + ", " + y;
+    }
+
+    private String buttonName() {
+        return switch (button) {
             case 3 -> "direito";
             case 2 -> "meio";
             default -> "esquerdo";
         };
-        String times = clicks > 1 ? "duplo " : "";
-        return "Clique " + times + which + "  " + x + ", " + y;
     }
 
     public String encode() {
@@ -121,6 +141,7 @@ public final class Step {
             case WAIT -> "WAIT " + waitMs;
             case FOCUS -> "FOCUS " + escape(text);
             case SCROLL -> "SCROLL " + scroll + " " + x + " " + y + " " + (move ? 1 : 0);
+            case DRAG -> "DRAG " + x + " " + y + " " + x2 + " " + y2 + " " + button;
         };
         return body + "|g" + gapMs;
     }
@@ -133,7 +154,7 @@ public final class Step {
             gap = Integer.parseInt(line.substring(mark + 2));
             line = line.substring(0, mark);
         }
-        String[] p = line.split(" ", 5);
+        String[] p = line.split(" ", 6);
         try {
             Step step = switch (p[0]) {
                 case "CLICK" -> click(
@@ -146,6 +167,9 @@ public final class Step {
                 case "SCROLL" -> scroll(
                         Integer.parseInt(p[2]), Integer.parseInt(p[3]),
                         Integer.parseInt(p[1]), !"0".equals(p[4]));
+                case "DRAG" -> drag(
+                        Integer.parseInt(p[1]), Integer.parseInt(p[2]),
+                        Integer.parseInt(p[3]), Integer.parseInt(p[4]), Integer.parseInt(p[5]));
                 default -> null;
             };
             return step == null ? null : step.withGap(gap);

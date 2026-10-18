@@ -16,11 +16,24 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 
-/** Records clicks and keys into steps until {@link #stop()} is called. */
+/**
+ * Records clicks, drags, keys and wheel ticks into steps until {@link #stop()} is called.
+ * With {@code timing}, each step keeps the real pause that came before it.
+ */
 final class Recorder {
     private static final long MOUSE_LEFT = 1L << 1;
+    private static final long MOUSE_LEFT_UP = 1L << 2;
     private static final long MOUSE_RIGHT = 1L << 3;
+    private static final long MOUSE_RIGHT_UP = 1L << 4;
     private static final long MOUSE_OTHER = 1L << 25;
+    private static final long MOUSE_OTHER_UP = 1L << 26;
+    private static final int TYPE_LEFT_UP = 2;
+    private static final int TYPE_RIGHT_UP = 4;
+    private static final int TYPE_OTHER_UP = 26;
+    /** A release this far from the press, in points, turns the click into a drag. */
+    private static final int DRAG_MIN = 6;
+    /** Longest real pause kept between recorded steps. */
+    private static final int MAX_GAP_MS = 600_000;
     private static final long KEY_DOWN = 1L << 10;
     private static final long SCROLL_WHEEL = 1L << 22;
     private static final int TYPE_KEY_DOWN = 10;
@@ -41,7 +54,13 @@ final class Recorder {
 
     private final Out out;
     private final Supplier<Rectangle> ignore;
+    private final boolean timing;
     private final StringBuilder typed = new StringBuilder();
+    /** When the previous action happened, for real pauses. Zero before the first one. */
+    private long lastActionNs;
+    private int textGapMs = -1;
+    /** Where the button went down, or null when that press was ignored. */
+    private int[] pressed;
     private volatile boolean stopRequested;
     private long lastNs;
     /** Open scroll step being merged, or null. */
@@ -55,8 +74,13 @@ final class Recorder {
     private MemorySegment chars;
 
     Recorder(Out out, Supplier<Rectangle> ignore) {
+        this(out, ignore, false);
+    }
+
+    Recorder(Out out, Supplier<Rectangle> ignore, boolean timing) {
         this.out = out;
         this.ignore = ignore;
+        this.timing = timing;
     }
 
     void stop() {
@@ -88,7 +112,8 @@ final class Recorder {
             MethodHandle create = linker.downcallHandle(cg.find("CGEventTapCreate").orElseThrow(),
                     FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT,
                             ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-            long mask = MOUSE_LEFT | MOUSE_RIGHT | MOUSE_OTHER | KEY_DOWN | SCROLL_WHEEL;
+            long mask = MOUSE_LEFT | MOUSE_RIGHT | MOUSE_OTHER | KEY_DOWN | SCROLL_WHEEL
+                    | MOUSE_LEFT_UP | MOUSE_RIGHT_UP | MOUSE_OTHER_UP;
             MemorySegment tap = (MemorySegment) create.invokeExact(1, 0, 1, mask, stub, MemorySegment.NULL);
             if (tap.address() == 0) {
                 return "Para gravar, permita o MacroEasy em Monitoramento de entrada, nos Ajustes do Sistema.";
@@ -156,8 +181,15 @@ final class Recorder {
         MemorySegment point = (MemorySegment) location.invokeExact(points, event);
         int x = (int) Math.round(point.get(ValueLayout.JAVA_DOUBLE, 0));
         int y = (int) Math.round(point.get(ValueLayout.JAVA_DOUBLE, 8));
+        if (type == TYPE_LEFT_UP || type == TYPE_RIGHT_UP || type == TYPE_OTHER_UP) {
+            release(x, y);
+            return;
+        }
         Rectangle skip = ignore.get();
-        if (skip != null && skip.contains(x, y)) return;
+        if (skip != null && skip.contains(x, y)) {
+            pressed = null;
+            return;
+        }
         if (type == TYPE_SCROLL) {
             scroll(x, y, (long) field.invokeExact(event, FIELD_SCROLL_LINES));
             return;
@@ -169,13 +201,42 @@ final class Recorder {
         };
         int clicks = (int) (long) field.invokeExact(event, 1);
         flushText();
+        pressed = new int[] {x, y, button};
         if (clicks >= 2) {
             out.replaceLast(Step.click(x, y, button, 2));
             lastNs = System.nanoTime();
+            lastActionNs = lastNs;
             return;
         }
         gap();
-        out.add(Step.click(x, y, button, 1));
+        out.add(Step.click(x, y, button, 1).withGap(takeGap()));
+    }
+
+    /** A release away from the press replaces the click just recorded with a drag. */
+    private void release(int x, int y) {
+        int[] down = pressed;
+        pressed = null;
+        if (down == null || !isDrag(down[0], down[1], x, y)) return;
+        out.replaceLast(Step.drag(down[0], down[1], x, y, down[2]));
+        lastNs = System.nanoTime();
+        lastActionNs = lastNs;
+    }
+
+    static boolean isDrag(int x, int y, int x2, int y2) {
+        return Math.abs(x2 - x) >= DRAG_MIN || Math.abs(y2 - y) >= DRAG_MIN;
+    }
+
+    /** The real pause since the previous action, or -1 (shared interval) without timing or before the first step. */
+    private int takeGap() {
+        long now = System.nanoTime();
+        int gap = timing ? realGap(lastActionNs, now) : -1;
+        lastActionNs = now;
+        return gap;
+    }
+
+    static int realGap(long previousNs, long nowNs) {
+        if (previousNs == 0 || nowNs < previousNs) return -1;
+        return (int) Math.min(MAX_GAP_MS, (nowNs - previousNs) / 1_000_000L);
     }
 
     /** Merges wheel ticks into one step per direction; a pause or a turn starts a new one. */
@@ -185,14 +246,15 @@ final class Recorder {
         Step open = scrolling;
         if (open != null && millisSinceLast() < SCROLL_MERGE_MS
                 && Integer.signum(open.scroll) == Integer.signum(lines)) {
-            scrolling = Step.scroll(open.x, open.y, open.scroll + lines, true);
+            scrolling = Step.scroll(open.x, open.y, open.scroll + lines, true).withGap(open.gapMs);
             out.replaceLast(scrolling);
             lastNs = System.nanoTime();
+            lastActionNs = lastNs;
             return;
         }
         flushText();
         gap();
-        scrolling = Step.scroll(x, y, lines, true);
+        scrolling = Step.scroll(x, y, lines, true).withGap(takeGap());
         out.add(scrolling);
     }
 
@@ -208,7 +270,7 @@ final class Recorder {
         boolean control = isControlKey(key);
         boolean backspace = key == 0x33;
         if (modified || (control && !backspace) || (backspace && shifted)) {
-            int vk = macToJava(key);
+            int vk = control ? macToJava(key) : layoutKey(event, key, flag);
             if (vk == KeyEvent.VK_UNDEFINED) return;
             flushText();
             gap();
@@ -218,16 +280,17 @@ final class Recorder {
             if ((flag & OPTION) != 0) keys.add(KeyEvent.VK_ALT);
             if (shifted) keys.add(KeyEvent.VK_SHIFT);
             keys.add(vk);
-            out.add(Step.keys(keys.stream().mapToInt(Integer::intValue).toArray()));
+            out.add(Step.keys(keys.stream().mapToInt(Integer::intValue).toArray()).withGap(takeGap()));
             return;
         }
         if (backspace) {
             if (!typed.isEmpty()) {
                 typed.deleteCharAt(typed.length() - 1);
                 lastNs = System.nanoTime();
+                lastActionNs = lastNs;
             } else {
                 gap();
-                out.add(Step.keys(new int[] {KeyEvent.VK_BACK_SPACE}));
+                out.add(Step.keys(new int[] {KeyEvent.VK_BACK_SPACE}).withGap(takeGap()));
             }
             return;
         }
@@ -236,13 +299,39 @@ final class Recorder {
     }
 
     private void appendText(String text) {
-        if (typed.isEmpty()) gap();
-        else if (millisSinceLast() >= 500) {
+        if (typed.isEmpty()) {
+            gap();
+            textGapMs = takeGap();
+        } else if (millisSinceLast() >= 500) {
             flushText();
             gap();
+            textGapMs = takeGap();
         }
         typed.append(text);
         lastNs = System.nanoTime();
+        lastActionNs = lastNs;
+    }
+
+    /**
+     * The key the current keyboard layout prints, so ⌘Z is recorded as Z on AZERTY or Dvorak too.
+     * Falls back to the key's position on a US keyboard when the layout gives no plain letter or digit.
+     */
+    private int layoutKey(MemorySegment event, int code, long flag) throws Throwable {
+        String text = characters(event);
+        if (text.length() == 1) {
+            int vk = letterOrDigit(text.charAt(0), (flag & CONTROL) != 0);
+            if (vk != KeyEvent.VK_UNDEFINED) return vk;
+        }
+        return macToJava(code);
+    }
+
+    /** Java key code for a typed letter or digit. Ctrl turns letters into control codes, so those are mapped back. */
+    static int letterOrDigit(char c, boolean control) {
+        if (control && c >= 1 && c <= 26) c = (char) ('a' + c - 1);
+        char lower = Character.toLowerCase(c);
+        if (lower >= 'a' && lower <= 'z') return KeyEvent.VK_A + (lower - 'a');
+        if (c >= '0' && c <= '9') return KeyEvent.VK_0 + (c - '0');
+        return KeyEvent.VK_UNDEFINED;
     }
 
     private String characters(MemorySegment event) throws Throwable {
@@ -260,7 +349,7 @@ final class Recorder {
 
     private void flushText() {
         if (typed.isEmpty()) return;
-        out.add(Step.text(typed.toString(), true));
+        out.add(Step.text(typed.toString(), true).withGap(textGapMs));
         typed.setLength(0);
     }
 
