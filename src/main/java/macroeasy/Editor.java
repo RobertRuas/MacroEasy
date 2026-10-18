@@ -179,6 +179,7 @@ public final class Editor {
         GapEditor gap = new GapEditor(current);
         JPanel form = column(
                 new JLabel("O texto é colado com " + pasteKey + ". Acentos funcionam."),
+                new JLabel("Número aleatório: escreva {9-15} para um número de 9 a 15, sorteado a cada execução."),
                 new JScrollPane(area),
                 typed,
                 gap.panel());

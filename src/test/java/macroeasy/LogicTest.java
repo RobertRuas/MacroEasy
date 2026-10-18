@@ -140,4 +140,15 @@ class LogicTest {
         assertFalse(lines.pixels);
         assertEquals(3, lines.scrollLines());
     }
+    @Test
+    void textCanHoldRandomNumbers() {
+        java.util.Random random = new java.util.Random(7);
+        for (int i = 0; i < 200; i++) {
+            int n = Integer.parseInt(Step.expand("{9-15}", random));
+            assertTrue(n >= 9 && n <= 15);
+        }
+        String line = Step.expand("Idade { 15 - 9 } anos, {3-3}", random);
+        assertTrue(line.matches("Idade (9|1[0-5]) anos, 3"));
+        assertEquals("sem {chave} e {a-b}", Step.expand("sem {chave} e {a-b}", random));
+    }
 }

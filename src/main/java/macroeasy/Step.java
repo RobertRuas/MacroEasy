@@ -241,6 +241,27 @@ public final class Step {
         return keys;
     }
 
+    private static final java.util.regex.Pattern RANDOM =
+            java.util.regex.Pattern.compile("\\{\\s*(-?\\d{1,9})\\s*-\\s*(-?\\d{1,9})\\s*\\}");
+
+    /**
+     * The text to type, with every {@code {9-15}} replaced by a whole number drawn between the two
+     * limits, both included, so each run can type a different value.
+     */
+    static String expand(String value, java.util.random.RandomGenerator random) {
+        java.util.regex.Matcher m = RANDOM.matcher(value);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            long a = Long.parseLong(m.group(1));
+            long b = Long.parseLong(m.group(2));
+            long low = Math.min(a, b);
+            long high = Math.max(a, b);
+            m.appendReplacement(sb, Long.toString(low + random.nextLong(high - low + 1)));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
     static String escape(String value) {
         return value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "");
     }

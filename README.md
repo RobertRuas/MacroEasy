@@ -2,7 +2,7 @@
 
 Aplicação de macros por passos, em Java. No macOS ela grava, executa e traz janelas à frente. No Windows e no Linux o mesmo programa executa cliques, arrastos, texto, atalhos, rolagem e esperas.
 
-Versão 1.3. Desenvolvedor: Robert.
+Versão 1.4. Desenvolvedor: Robert.
 
 ## Onde roda
 
@@ -44,6 +44,7 @@ O editor abre sem as permissões do macOS. A gravação avisa que está disponí
 ## O que dá para fazer
 
 - Montar a macro na mão ou gravar cliques, arrastos, texto, atalhos e rolagem da roda do mouse. Na gravação, Enter, Tab, Esc, setas, teclas F e combinações com ⌘, Ctrl ou ⌥ viram passos de atalho; só os caracteres viram texto. Os atalhos seguem o layout do teclado (AZERTY, Dvorak, ABNT2).
+- Número aleatório no texto: escreva `{9-15}` no passo de texto e, a cada execução, ele digita um número inteiro sorteado de 9 a 15 (os dois incluídos). Dá para usar vários no mesmo texto, como `Idade {18-60}, nota {0-10}`.
 - Clique e arrasto vão direto para a tela: escolha Clique e clique onde quer clicar; escolha Arrastar e soltar, clique no ponto inicial e logo depois no ponto final. A janela do MacroEasy some enquanto você marca. Para mudar o botão ou o intervalo, use o ícone de editar.
 - Arrastar: segura o botão no ponto inicial, começa devagar, desliza até o final e espera um instante antes de soltar, para que listas, pastas e páginas reconheçam o arrasto.
 - Desfazer e refazer qualquer mudança nos passos, inclusive uma gravação inteira.
@@ -89,7 +90,7 @@ Para gerar o `MacroEasy.app`:
 ```bash
 jpackage --type app-image --name MacroEasy --dest dist \
   --input target --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
-  --app-version 1.3 \
+  --app-version 1.4 \
   --java-options '--enable-native-access=ALL-UNNAMED'
 ```
 
@@ -109,7 +110,7 @@ No `MacroEasy.app` (macOS), se a tag for maior que a versão instalada, a janela
 
 No `MacroEasy.jar` (Windows, Linux), o app nunca fica bloqueado. Quando há versão nova, ele avisa uma vez e oferece abrir a página da release.
 
-A tag da release deve ser `v1.3.0` ou `1.3.0`. O zip precisa conter `MacroEasy.app`.
+A tag da release deve ser `v1.4.0` ou `1.4.0`. O zip precisa conter `MacroEasy.app`.
 
 ## Publicar uma versão
 

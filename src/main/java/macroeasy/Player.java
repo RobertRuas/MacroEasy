@@ -52,7 +52,10 @@ public final class Player {
     private boolean run(Step step) {
         return switch (step.kind) {
             case CLICK -> click(step);
-            case TEXT -> step.paste ? paste(step.text) : type(step.text);
+            case TEXT -> {
+                String text = Step.expand(step.text, java.util.concurrent.ThreadLocalRandom.current());
+                yield step.paste ? paste(text) : type(text);
+            }
             case KEYS -> chord(step.keys);
             case WAIT -> pause(step.waitMs);
             case FOCUS -> focus(step);
