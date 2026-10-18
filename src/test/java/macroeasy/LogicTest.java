@@ -43,6 +43,24 @@ class LogicTest {
     }
 
     @Test
+    void trackpadFractionsAddUpToWholeLines() {
+        ScrollTally tally = new ScrollTally();
+        tally.start(10, 20, -1);
+        assertNull(tally.add(0.3));
+        assertTrue(tally.continues(0.3, 50, 700));
+        assertEquals(1, tally.add(0.3).scroll);
+        tally.add(0.3);
+        Step step = tally.add(0.3);
+        assertEquals(1, step.scroll);
+        assertEquals(10, step.x);
+        assertEquals(2, tally.add(0.4).scroll);
+        assertFalse(tally.continues(-1, 50, 700));
+        assertFalse(tally.continues(1, 900, 700));
+        tally.reset();
+        assertFalse(tally.continues(1, 0, 700));
+    }
+
+    @Test
     void recordingTellsDragsFromClicks() {
         assertFalse(Recorder.isDrag(100, 100, 103, 102));
         assertTrue(Recorder.isDrag(100, 100, 100, 140));

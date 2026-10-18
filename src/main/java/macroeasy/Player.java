@@ -93,28 +93,31 @@ public final class Player {
         };
     }
 
+    /** Pause between wheel notches. Steady pacing lets apps with smooth scrolling keep up, so each run lands in the same place. */
+    private static final int NOTCH_MS = 30;
+    /** Wait after the last notch for smooth-scroll animations to finish before the next step. */
+    private static final int SCROLL_SETTLE_MS = 220;
+
     /**
-     * Rolls the wheel a few lines at a time so Stop still reacts mid-way.
-     * On macOS {@link Robot#mouseWheel} rolls up for positive values, the opposite
-     * of its documentation, so the sign is flipped there.
+     * Rolls the wheel one notch at a time at a steady pace, so the distance is the same on every run
+     * and Stop still reacts mid-way. Moving the pointer first gives the app time to see what is under it.
+     * On macOS {@link Robot#mouseWheel} rolls up for positive values, the opposite of its documentation,
+     * so the sign is flipped there.
      */
     private boolean scroll(Step step) {
         if (step.scroll == 0) return true;
         if (step.move) {
             if (!pause(40)) return false;
             robot.mouseMove(step.x, step.y);
-            if (!pause(30)) return false;
+            if (!pause(80)) return false;
         }
-        int left = Math.abs(step.scroll);
         int sign = (step.scroll < 0) == isMac() ? 1 : -1;
-        while (left > 0) {
+        for (int left = Math.abs(step.scroll); left > 0; left--) {
             if (stopped()) return false;
-            int chunk = Math.min(3, left);
-            robot.mouseWheel(sign * chunk);
-            left -= chunk;
-            if (left > 0 && !pause(20)) return false;
+            robot.mouseWheel(sign);
+            if (left > 1 && !pause(NOTCH_MS)) return false;
         }
-        return pause(40);
+        return pause(SCROLL_SETTLE_MS);
     }
 
     private boolean focus(Step step) {

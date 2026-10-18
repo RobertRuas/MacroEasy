@@ -40,6 +40,12 @@ final class Recorder {
     private static final int TYPE_SCROLL = 22;
     /** kCGScrollWheelEventDeltaAxis1: vertical lines, positive when rolling up. */
     private static final int FIELD_SCROLL_LINES = 11;
+    /**
+     * kCGScrollWheelEventFixedPtDeltaAxis1: the same distance with fractions of a line. A trackpad or a
+     * smooth wheel sends many small moves that round to zero lines one by one; adding the fractions
+     * keeps the whole distance.
+     */
+    private static final int FIELD_SCROLL_FIXED = 93;
     /** Wheel events closer than this, in the same direction, merge into one step. */
     private static final long SCROLL_MERGE_MS = 700;
     private static final long COMMAND = 0x100000;
@@ -63,12 +69,13 @@ final class Recorder {
     private int[] pressed;
     private volatile boolean stopRequested;
     private long lastNs;
-    /** Open scroll step being merged, or null. */
-    private Step scrolling;
+    /** Wheel movement being merged into one step. */
+    private final ScrollTally scrolling = new ScrollTally();
     private SegmentAllocator points;
     private MethodHandle location;
     private MethodHandle flags;
     private MethodHandle field;
+    private MethodHandle doubleField;
     private MethodHandle unicode;
     private MemorySegment actual;
     private MemorySegment chars;
@@ -140,6 +147,8 @@ final class Recorder {
                     FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
             field = linker.downcallHandle(cg.find("CGEventGetIntegerValueField").orElseThrow(),
                     FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+            doubleField = linker.downcallHandle(cg.find("CGEventGetDoubleValueField").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_DOUBLE, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
             unicode = linker.downcallHandle(cg.find("CGEventKeyboardGetUnicodeString").orElseThrow(),
                     FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
             MemorySegment pointBuf = arena.allocate(16);
@@ -191,7 +200,9 @@ final class Recorder {
             return;
         }
         if (type == TYPE_SCROLL) {
-            scroll(x, y, (long) field.invokeExact(event, FIELD_SCROLL_LINES));
+            double fine = (double) doubleField.invokeExact(event, FIELD_SCROLL_FIXED);
+            if (fine == 0) fine = (long) field.invokeExact(event, FIELD_SCROLL_LINES);
+            scroll(x, y, fine);
             return;
         }
         int button = switch (type) {
@@ -239,23 +250,25 @@ final class Recorder {
         return (int) Math.min(MAX_GAP_MS, (nowNs - previousNs) / 1_000_000L);
     }
 
-    /** Merges wheel ticks into one step per direction; a pause or a turn starts a new one. */
-    private void scroll(int x, int y, long delta) {
+    /**
+     * Merges wheel movement into one step per direction; a pause or a turn starts a new one.
+     * {@code delta} is in lines, with fractions, positive when rolling up.
+     */
+    private void scroll(int x, int y, double delta) {
         if (delta == 0) return;
-        int lines = (int) -delta;
-        Step open = scrolling;
-        if (open != null && millisSinceLast() < SCROLL_MERGE_MS
-                && Integer.signum(open.scroll) == Integer.signum(lines)) {
-            scrolling = Step.scroll(open.x, open.y, open.scroll + lines, true).withGap(open.gapMs);
-            out.replaceLast(scrolling);
-            lastNs = System.nanoTime();
-            lastActionNs = lastNs;
-            return;
+        double lines = -delta;
+        if (!scrolling.continues(lines, millisSinceLast(), SCROLL_MERGE_MS)) {
+            flushText();
+            gap();
+            scrolling.start(x, y, takeGap());
         }
-        flushText();
-        gap();
-        scrolling = Step.scroll(x, y, lines, true).withGap(takeGap());
-        out.add(scrolling);
+        lastNs = System.nanoTime();
+        lastActionNs = lastNs;
+        Step step = scrolling.add(lines);
+        if (step == null) return;
+        if (scrolling.shown) out.replaceLast(step);
+        else out.add(step);
+        scrolling.shown = true;
     }
 
     /**
@@ -355,7 +368,7 @@ final class Recorder {
 
     private void gap() {
         lastNs = System.nanoTime();
-        scrolling = null;
+        scrolling.reset();
     }
 
     private long millisSinceLast() {
