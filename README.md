@@ -15,7 +15,7 @@ Versão 1.2. Desenvolvedor: Robert.
 ## Como usar no macOS
 
 1. Baixe `MacroEasy.zip` em [Releases](https://github.com/RobertRuas/MacroEasy/releases/latest).
-2. Abra o zip e o `MacroEasy.app`.
+2. Abra o zip e o `MacroEasy.app`. Ele já traz o Java; não precisa instalar nada. Não use o `MacroEasy.jar` no Mac, porque ele precisa de um Java instalado.
 3. Autorize Acessibilidade e Monitoramento de entrada. Ative o interruptor e clique em Reabrir. O macOS só grava a permissão na próxima abertura.
 4. Grave o que você faz ou monte os passos. As macros ficam em `~/Documents/MacroEasy`.
 5. Execute com um atraso inicial para focar o programa certo. Esc (em qualquer aplicativo), o botão flutuante ou o canto superior esquerdo de qualquer tela interrompem.
@@ -114,8 +114,9 @@ A tag da release deve ser `v1.2.0` ou `1.2.0`. O zip precisa conter `MacroEasy.a
 
 1. Suba o número em `pom.xml` e em `About.VERSION`.
 2. Escreva as novidades em `release-notes/vX.Y.md`.
-3. Com tudo no `main`, rode o workflow em Actions → Release → Run workflow. Ele compila, roda os testes e cria a release `vX.Y` com o `MacroEasy.jar`, se ainda não existir release para essa versão.
-4. No Mac, gere e assine o `MacroEasy.app`, compacte em `MacroEasy.zip` e anexe à mesma release. Sem o zip, o app do Mac continua na versão que já tem e não fica bloqueado.
+3. Com tudo no `main`, rode o workflow em Actions → Release → Run workflow. Ele compila, roda os testes e cria a release `vX.Y` com o `MacroEasy.jar`, se ainda não existir release para essa versão. Depois gera o `MacroEasy.app` num Mac do GitHub, já com o Java dentro, e anexa o `MacroEasy.zip` à release.
+
+O app sai assinado com o certificado MacroEasy Local quando os segredos `MAC_CERT_P12` (o certificado exportado em .p12, em base64) e `MAC_CERT_PASSWORD` estão em Settings → Secrets → Actions. Sem eles, sai com assinatura local (ad-hoc), e o macOS pede de novo as permissões de Acessibilidade e Monitoramento de entrada a cada versão.
 
 A página do projeto, para publicar depois, está em `http/`.
 

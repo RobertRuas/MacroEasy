@@ -1,6 +1,7 @@
 name: Release
 
-# Publishes the version in pom.xml as a release, when it has none yet.
+# Publishes the version in pom.xml as a release, when it has none yet, and attaches
+# MacroEasy.zip with the macOS app (Java included), replacing any zip already there.
 # Run by hand (Actions -> Release -> Run workflow); the notes come from release-notes/v<version>.md.
 on:
   workflow_dispatch:
@@ -15,6 +16,8 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -47,3 +50,49 @@ jobs:
           [ -f "$notes" ] || { echo "Versão ${TAG#v}." > /tmp/notes.md; notes=/tmp/notes.md; }
           gh release create "$TAG" target/MacroEasy.jar --target "$GITHUB_SHA" \
             --title "MacroEasy ${TAG#v}" --notes-file "$notes" --latest
+
+  mac-app:
+    needs: release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '22'
+          cache: maven
+      - run: mvn -B package
+      - name: Build MacroEasy.app with its own Java
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          mkdir input && cp target/MacroEasy.jar input/
+          jpackage --type app-image --name MacroEasy --dest dist \
+            --input input --main-jar MacroEasy.jar --main-class macroeasy.MacroEasy \
+            --app-version "${TAG#v}" \
+            --java-options '--enable-native-access=ALL-UNNAMED'
+      - name: Sign the app
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          identity=-
+          if [ -n "$MAC_CERT_P12" ]; then
+            keychain="$RUNNER_TEMP/sign.keychain-db"
+            security create-keychain -p ci "$keychain"
+            security unlock-keychain -p ci "$keychain"
+            security list-keychains -d user -s "$keychain"
+            echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k ci "$keychain"
+            identity="MacroEasy Local"
+          fi
+          codesign --force --deep --sign "$identity" dist/MacroEasy.app
+          codesign --verify --deep --strict dist/MacroEasy.app
+      - name: Attach MacroEasy.zip to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          ditto -c -k --keepParent dist/MacroEasy.app MacroEasy.zip
+          gh release upload "$TAG" MacroEasy.zip --clobber
